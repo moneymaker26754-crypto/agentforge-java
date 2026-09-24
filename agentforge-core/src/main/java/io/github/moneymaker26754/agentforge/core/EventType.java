@@ -1,0 +1,14 @@
+package io.github.moneymaker26754.agentforge.core;
+
+public enum EventType {
+    SESSION_STARTED,
+    MODEL_RESPONSE,
+    CONTEXT_COMPRESSED,
+    APPROVAL_REQUESTED,
+    APPROVAL_DECIDED,
+    TOOL_INTENT,
+    TOOL_RESULT,
+    SESSION_COMPLETED,
+    SESSION_TERMINATED
+}
+
