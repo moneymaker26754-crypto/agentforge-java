@@ -1,0 +1,12 @@
+.idea/
+*.iml
+target/
+**/target/
+.agentforge/
+.superpowers/
+.env
+*.db
+*.db-shm
+*.db-wal
+benchmark-work/
+
