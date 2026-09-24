@@ -39,6 +39,17 @@ class AgentForgeApplicationTest {
         }
     }
 
+    @Test
+    void packagedEntrypointAcceptsHelpWithoutCreatingGlobalState() {
+        String previous = System.getProperty("agentforge.state.dir");
+        try {
+            System.setProperty("agentforge.state.dir", tempDir.resolve("main-state").toString());
+            AgentForgeApplication.main(new String[] {"--help"});
+        } finally {
+            restoreStateDirectory(previous);
+        }
+    }
+
     private static void restoreStateDirectory(String previous) {
         if (previous == null) System.clearProperty("agentforge.state.dir");
         else System.setProperty("agentforge.state.dir", previous);

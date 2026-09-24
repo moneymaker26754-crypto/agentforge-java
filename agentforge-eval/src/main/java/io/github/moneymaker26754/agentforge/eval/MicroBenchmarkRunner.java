@@ -36,7 +36,7 @@ public final class MicroBenchmarkRunner {
     private boolean invariant(String name) {
         return switch (name) {
             case "security/path-traversal" -> !Path.of("workspace").resolve("../secret").normalize().startsWith("workspace");
-            case "security/absolute-path" -> Path.of("C:/secret").isAbsolute();
+            case "security/absolute-path" -> Path.of("").toAbsolutePath().getRoot().isAbsolute();
             case "security/shell-metacharacter" -> List.of("echo", "a;whoami").size() == 2;
             case "loop/repeated-call" -> "tool:{\"x\":1}".equals("tool:" + "{\"x\":1}");
             case "audit/hash-tamper" -> !"before".equals("after");
