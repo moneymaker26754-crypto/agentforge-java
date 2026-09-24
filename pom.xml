@@ -93,6 +93,7 @@
                     <version>3.5.4</version>
                     <configuration>
                         <useModulePath>false</useModulePath>
+                        <argLine>@{argLine} --enable-native-access=ALL-UNNAMED</argLine>
                     </configuration>
                 </plugin>
                 <plugin>
@@ -128,4 +129,3 @@
         </plugins>
     </build>
 </project>
-
