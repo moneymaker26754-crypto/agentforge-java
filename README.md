@@ -113,7 +113,7 @@ agentforge-cli             Spring Boot non-web、Picocli、交互审批
 agentforge-eval            manifest、微基准、指标与报告生成
 ```
 
-最终本机验收：`./mvnw verify` 运行 50 个测试、0 失败；JaCoCo core 行覆盖率 96.64%、分支覆盖率 82.99%，全项目行覆盖率 75.29%。CI 在 Linux/Windows 重跑，并用 `scripts/check_coverage.py` 强制门槛。
+最终本机验收：`./mvnw verify` 运行 54 个测试、0 失败；JaCoCo core 行覆盖率 96.64%、分支覆盖率 82.99%，全项目行覆盖率 78.08%。CI 在 Linux/Windows 重跑，并用 `scripts/check_coverage.py` 强制门槛。
 
 ## 安全边界
 
