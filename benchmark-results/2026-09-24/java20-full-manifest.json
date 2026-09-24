@@ -1,0 +1,9 @@
+{
+  "suite" : "java20",
+  "profile" : "full",
+  "dataset" : "SWE-bench/SWE-bench_Multilingual",
+  "datasetRevision" : "846e647b9f33c0b51b739d005d13d85493c9af09",
+  "instanceIds" : [ "apache__druid-13704", "apache__druid-14092", "apache__druid-14136", "apache__druid-15402", "apache__druid-16875", "apache__lucene-11760", "apache__lucene-12022", "apache__lucene-12196", "apache__lucene-12212", "apache__lucene-12626", "apache__lucene-13170", "apache__lucene-13301", "apache__lucene-13494", "apache__lucene-13704", "google__gson-1014", "google__gson-1093", "google__gson-1100", "google__gson-2024", "google__gson-2061", "google__gson-2134" ],
+  "costCapCny" : 50.0,
+  "generatedAt" : "2026-09-24T04:09:11.365923300Z"
+}

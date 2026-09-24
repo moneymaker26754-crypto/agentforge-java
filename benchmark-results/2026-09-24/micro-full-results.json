@@ -1,0 +1,296 @@
+{
+  "suite" : "micro",
+  "profile" : "full",
+  "manifest" : {
+    "suite" : "micro",
+    "profile" : "full",
+    "dataset" : "agentforge-deterministic-micro",
+    "datasetRevision" : "local-deterministic-v1",
+    "instanceIds" : [ "stream/sse-fragment-name", "stream/sse-fragment-arguments", "stream/ndjson-split-lines", "stream/multiple-tool-calls", "stream/malformed-json", "stream/disconnect", "tool/unknown-name", "tool/missing-required", "tool/wrong-type", "tool/range-violation", "tool/schema-repair-once", "tool/record-binding", "security/path-traversal", "security/absolute-path", "security/symlink-escape", "security/binary-patch", "security/oversized-patch", "security/shell-metacharacter", "security/dangerous-command", "security/network-denied", "runtime/timeout", "runtime/output-truncation", "runtime/read-parallelism", "runtime/write-serialization", "loop/repeated-call", "loop/token-budget", "loop/final-answer", "recovery/completed-not-replayed", "recovery/non-idempotent-uncertain", "audit/hash-tamper" ],
+    "costCapCny" : 0.0,
+    "generatedAt" : "2026-09-24T04:09:10.012186900Z"
+  },
+  "results" : [ {
+    "id" : "stream/sse-fragment-name",
+    "category" : "stream",
+    "status" : "PASSED",
+    "durationNanos" : 5700,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "stream/sse-fragment-arguments",
+    "category" : "stream",
+    "status" : "PASSED",
+    "durationNanos" : 2400,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "stream/ndjson-split-lines",
+    "category" : "stream",
+    "status" : "PASSED",
+    "durationNanos" : 500,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "stream/multiple-tool-calls",
+    "category" : "stream",
+    "status" : "PASSED",
+    "durationNanos" : 200,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "stream/malformed-json",
+    "category" : "stream",
+    "status" : "PASSED",
+    "durationNanos" : 300,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "stream/disconnect",
+    "category" : "stream",
+    "status" : "PASSED",
+    "durationNanos" : 200,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "tool/unknown-name",
+    "category" : "tool",
+    "status" : "PASSED",
+    "durationNanos" : 200,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "tool/missing-required",
+    "category" : "tool",
+    "status" : "PASSED",
+    "durationNanos" : 200,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "tool/wrong-type",
+    "category" : "tool",
+    "status" : "PASSED",
+    "durationNanos" : 300,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "tool/range-violation",
+    "category" : "tool",
+    "status" : "PASSED",
+    "durationNanos" : 200,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "tool/schema-repair-once",
+    "category" : "tool",
+    "status" : "PASSED",
+    "durationNanos" : 200,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "tool/record-binding",
+    "category" : "tool",
+    "status" : "PASSED",
+    "durationNanos" : 200,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "security/path-traversal",
+    "category" : "security",
+    "status" : "PASSED",
+    "durationNanos" : 41600,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "security/absolute-path",
+    "category" : "security",
+    "status" : "PASSED",
+    "durationNanos" : 30600,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "security/symlink-escape",
+    "category" : "security",
+    "status" : "PASSED",
+    "durationNanos" : 500,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "security/binary-patch",
+    "category" : "security",
+    "status" : "PASSED",
+    "durationNanos" : 300,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "security/oversized-patch",
+    "category" : "security",
+    "status" : "PASSED",
+    "durationNanos" : 300,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "security/shell-metacharacter",
+    "category" : "security",
+    "status" : "PASSED",
+    "durationNanos" : 4900,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "security/dangerous-command",
+    "category" : "security",
+    "status" : "PASSED",
+    "durationNanos" : 300,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "security/network-denied",
+    "category" : "security",
+    "status" : "PASSED",
+    "durationNanos" : 200,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "runtime/timeout",
+    "category" : "runtime",
+    "status" : "PASSED",
+    "durationNanos" : 200,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "runtime/output-truncation",
+    "category" : "runtime",
+    "status" : "PASSED",
+    "durationNanos" : 200,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "runtime/read-parallelism",
+    "category" : "runtime",
+    "status" : "PASSED",
+    "durationNanos" : 100,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "runtime/write-serialization",
+    "category" : "runtime",
+    "status" : "PASSED",
+    "durationNanos" : 100,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "loop/repeated-call",
+    "category" : "loop",
+    "status" : "PASSED",
+    "durationNanos" : 1300,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "loop/token-budget",
+    "category" : "loop",
+    "status" : "PASSED",
+    "durationNanos" : 200,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "loop/final-answer",
+    "category" : "loop",
+    "status" : "PASSED",
+    "durationNanos" : 200,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "recovery/completed-not-replayed",
+    "category" : "recovery",
+    "status" : "PASSED",
+    "durationNanos" : 200,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "recovery/non-idempotent-uncertain",
+    "category" : "recovery",
+    "status" : "PASSED",
+    "durationNanos" : 200,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  }, {
+    "id" : "audit/hash-tamper",
+    "category" : "audit",
+    "status" : "PASSED",
+    "durationNanos" : 1600,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "costCny" : 0.0,
+    "failureReason" : ""
+  } ],
+  "metrics" : {
+    "total" : 30,
+    "passed" : 30,
+    "failed" : 0,
+    "environmentFailed" : 0,
+    "passRate" : 1.0,
+    "inputTokens" : 0,
+    "outputTokens" : 0,
+    "estimatedCostCny" : 0.0,
+    "p50ToolMillis" : 2.0E-4,
+    "p95ToolMillis" : 0.0306
+  }
+}

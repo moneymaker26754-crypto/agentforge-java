@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Verify
+        shell: bash
+        run: ./mvnw -B verify
+      - name: Enforce coverage gates
+        run: python scripts/check_coverage.py
+      - name: Build sandbox image
+        if: runner.os == 'Linux'
+        run: docker build -f Dockerfile.sandbox -t agentforge-sandbox:java21 .
+      - name: Assert sandbox boundaries
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm --network none --cpus 2 --memory 4g --pids-limit 256 --user 1000:1000 agentforge-sandbox:java21 id
+          docker run --rm --network none agentforge-sandbox:java21 sh -c \
+            'if getent hosts example.com; then exit 9; else echo network-blocked; fi'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reports-${{ matrix.os }}
+          path: "**/target/site/jacoco/**"

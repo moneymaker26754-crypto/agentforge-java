@@ -55,6 +55,14 @@ class ReflectiveToolRegistryTest {
         assertThat(tool.calls).isZero();
     }
 
+    @Test
+    void declaresStringItemsForListArguments() {
+        var registry = new ReflectiveToolRegistry(new ObjectMapper(), List.of(new ListTool()));
+
+        assertThat(registry.descriptors().getFirst().parametersJsonSchema())
+                .contains("\"argv\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}");
+    }
+
     private ExecutionContext context() {
         return new ExecutionContext(new SessionId("test"), Path.of("."), SandboxMode.LOCAL);
     }
@@ -73,5 +81,13 @@ class ReflectiveToolRegistryTest {
     record EchoArguments(
             @ToolParam(description = "say this text", required = true) String text,
             @ToolParam(description = "uppercase output") boolean uppercase) {}
-}
 
+    @AgentTool(name = "list", description = "List input", risk = RiskLevel.READ, idempotent = true)
+    static final class ListTool implements ToolHandler<ListArguments> {
+        @Override public ToolResult execute(ListArguments arguments, ExecutionContext context) {
+            return ToolResult.success(String.join(",", arguments.argv()));
+        }
+    }
+
+    record ListArguments(@ToolParam(description = "arguments", required = true) List<String> argv) {}
+}

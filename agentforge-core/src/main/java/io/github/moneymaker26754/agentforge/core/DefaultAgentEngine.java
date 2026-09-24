@@ -161,6 +161,24 @@ public final class DefaultAgentEngine implements AgentEngine {
             return new RunResult(sessionId, RunStatus.FAILED, "", Usage.zero(),
                     TerminationReason.UNRECOVERABLE_ERROR, 0);
         }
+        if (snapshot.get().status() == RunStatus.COMPLETED) {
+            String answer = snapshot.get().messages().stream()
+                    .filter(message -> message.role() == ChatRole.ASSISTANT && message.toolCalls().isEmpty())
+                    .reduce((left, right) -> right).map(ChatMessage::content).orElse("");
+            return new RunResult(sessionId, RunStatus.COMPLETED, answer, snapshot.get().usage(),
+                    TerminationReason.FINAL_ANSWER, snapshot.get().checkpoint().iterations());
+        }
+        if (!events.isEmpty() && events.get(events.size() - 1).type() == EventType.SESSION_TERMINATED) {
+            TerminationReason reason = TerminationReason.valueOf(events.get(events.size() - 1).payload());
+            RunStatus status = switch (reason) {
+                case MAX_ITERATIONS, WALL_TIME, INPUT_TOKEN_BUDGET, OUTPUT_TOKEN_BUDGET, COST_BUDGET ->
+                        RunStatus.BUDGET_EXHAUSTED;
+                case USER_CANCELLED -> RunStatus.CANCELLED;
+                default -> RunStatus.FAILED;
+            };
+            return new RunResult(sessionId, status, "", snapshot.get().usage(), reason,
+                    snapshot.get().checkpoint().iterations());
+        }
         SessionEvent unmatchedIntent = null;
         for (SessionEvent event : events) {
             if (event.type() == EventType.TOOL_INTENT) unmatchedIntent = event;

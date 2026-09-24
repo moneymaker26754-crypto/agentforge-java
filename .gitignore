@@ -9,4 +9,4 @@ target/
 *.db-shm
 *.db-wal
 benchmark-work/
-
+build/

@@ -123,6 +123,100 @@ class DefaultAgentEngineTest {
         assertThat(resumedModel.requests).hasSize(1);
     }
 
+    @Test
+    void returnsUnknownDeniedAndRejectedCallsToModelWithoutExecutingThem() {
+        var model = new ScriptedModelClient(
+                ModelResponse.toolCalls(List.of(new ToolCall("u", 0, "missing", "{}")), Usage.zero()),
+                ModelResponse.toolCalls(List.of(new ToolCall("d", 0, "echo", "{\"text\":\"deny\"}")), Usage.zero()),
+                ModelResponse.toolCalls(List.of(new ToolCall("r", 0, "echo", "{\"text\":\"ask\"}")), Usage.zero()),
+                ModelResponse.finalAnswer("done", Usage.zero()));
+        var policies = new ArrayDeque<>(List.of(PolicyDecision.deny("blocked"), PolicyDecision.ask("confirm")));
+        var engine = new DefaultAgentEngine(model, new EchoToolRegistry(), invocation -> policies.removeFirst(),
+                request -> ApprovalDecision.REJECT, new MemoryCheckpointStore(), CLOCK);
+
+        RunResult result = engine.run(request(RunBudget.defaults()));
+
+        assertThat(result.status()).isEqualTo(RunStatus.COMPLETED);
+        assertThat(model.requests).flatExtracting(ChatRequest::messages).extracting(ChatMessage::content)
+                .contains("ERROR UNKNOWN_TOOL: missing", "ERROR POLICY_DENIED: blocked", "ERROR USER_REJECTED");
+    }
+
+    @Test
+    void stopsOnInputOutputAndCostBudgetsAfterUsageArrives() {
+        assertBudgetTermination(new Usage(10, 0, 0), new RunBudget(5, Duration.ofMinutes(1), 10, 10, 10, 3),
+                TerminationReason.INPUT_TOKEN_BUDGET);
+        assertBudgetTermination(new Usage(0, 10, 0), new RunBudget(5, Duration.ofMinutes(1), 10, 10, 10, 3),
+                TerminationReason.OUTPUT_TOKEN_BUDGET);
+        assertBudgetTermination(new Usage(0, 0, 1), new RunBudget(5, Duration.ofMinutes(1), 10, 10, 1, 3),
+                TerminationReason.COST_BUDGET);
+    }
+
+    @Test
+    void leavesNonIdempotentUnfinishedIntentUncertain() {
+        var store = new MemoryCheckpointStore();
+        var id = new SessionId("uncertain");
+        RunRequest request = request(RunBudget.defaults());
+        store.events.add(SessionEvent.of(id, 0, EventType.SESSION_STARTED, CLOCK.instant(), "start"));
+        store.events.add(SessionEvent.of(id, 1, EventType.TOOL_INTENT, CLOCK.instant(), "c:write"));
+        store.snapshot = Optional.of(new SessionSnapshot(id, 1, RunStatus.RUNNING,
+                List.of(ChatMessage.system("s"), ChatMessage.user("goal")), Usage.zero(), CLOCK.instant(),
+                RunCheckpoint.from(request, 0, null, 0, CLOCK.instant())));
+        ToolRegistry nonIdempotent = new ToolRegistry() {
+            @Override public Optional<ToolDefinition> find(String name) {
+                return Optional.of(new ToolDefinition("write", "write", "{}", RiskLevel.WRITE, false,
+                        (arguments, context) -> ToolResult.success("should not run")));
+            }
+            @Override public List<ToolDescriptor> descriptors() { return List.of(); }
+        };
+        var model = new ScriptedModelClient(ModelResponse.finalAnswer("must not call", Usage.zero()));
+
+        RunResult result = engine(model, store, nonIdempotent).resume(id);
+
+        assertThat(result.status()).isEqualTo(RunStatus.UNCERTAIN);
+        assertThat(result.terminationReason()).isEqualTo(TerminationReason.UNCERTAIN_TOOL);
+        assertThat(model.requests).isEmpty();
+    }
+
+    @Test
+    void resumeOfCompletedSessionReturnsStoredAnswerWithoutCallingModel() {
+        var store = new MemoryCheckpointStore();
+        var first = engine(new ScriptedModelClient(ModelResponse.finalAnswer("already done", new Usage(3, 2, 0.1))),
+                store, new EchoToolRegistry()).run(request(RunBudget.defaults()));
+        var unused = new ScriptedModelClient(ModelResponse.finalAnswer("must not call", Usage.zero()));
+
+        RunResult resumed = engine(unused, store, new EchoToolRegistry()).resume(first.sessionId());
+
+        assertThat(resumed.status()).isEqualTo(RunStatus.COMPLETED);
+        assertThat(resumed.answer()).isEqualTo("already done");
+        assertThat(resumed.usage()).isEqualTo(new Usage(3, 2, 0.1));
+        assertThat(unused.requests).isEmpty();
+    }
+
+    @Test
+    void resumeOfBudgetTerminatedSessionDoesNotRestartLoop() {
+        var store = new MemoryCheckpointStore();
+        var repeating = new RepeatingModelClient(ModelResponse.toolCalls(
+                List.of(new ToolCall("c", 0, "echo", "{\"text\":\"x\"}")), Usage.zero()));
+        RunBudget oneIteration = new RunBudget(1, Duration.ofMinutes(1), 100, 100, 10, 3);
+        RunResult first = engine(repeating, store, new EchoToolRegistry()).run(request(oneIteration));
+        int eventsBeforeResume = store.events.size();
+        var unused = new ScriptedModelClient(ModelResponse.finalAnswer("must not call", Usage.zero()));
+
+        RunResult resumed = engine(unused, store, new EchoToolRegistry()).resume(first.sessionId());
+
+        assertThat(resumed.status()).isEqualTo(RunStatus.BUDGET_EXHAUSTED);
+        assertThat(resumed.terminationReason()).isEqualTo(TerminationReason.MAX_ITERATIONS);
+        assertThat(unused.requests).isEmpty();
+        assertThat(store.events).hasSize(eventsBeforeResume);
+    }
+
+    private void assertBudgetTermination(Usage usage, RunBudget budget, TerminationReason reason) {
+        var model = new ScriptedModelClient(ModelResponse.finalAnswer("not returned", usage));
+        RunResult result = engine(model, new MemoryCheckpointStore(), new EchoToolRegistry()).run(request(budget));
+        assertThat(result.status()).isEqualTo(RunStatus.BUDGET_EXHAUSTED);
+        assertThat(result.terminationReason()).isEqualTo(reason);
+    }
+
     private DefaultAgentEngine engine(ModelClient model, CheckpointStore store, ToolRegistry tools) {
         return new DefaultAgentEngine(model, tools, invocation -> PolicyDecision.allow("test"),
                 request -> ApprovalDecision.APPROVE_ONCE, store, CLOCK);

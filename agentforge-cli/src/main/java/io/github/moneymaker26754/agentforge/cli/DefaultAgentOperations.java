@@ -78,7 +78,8 @@ public final class DefaultAgentOperations implements AgentOperations {
         String key = System.getenv("DEEPSEEK_API_KEY");
         if (key == null || key.isBlank()) throw new IllegalStateException("DEEPSEEK_API_KEY is not set");
         return new DeepSeekModelClient(http, URI.create(environment("DEEPSEEK_BASE_URL", "https://api.deepseek.com")),
-                key, mapper, decimal("DEEPSEEK_INPUT_CNY_PER_1K", 0), decimal("DEEPSEEK_OUTPUT_CNY_PER_1K", 0));
+                key, mapper, decimal("DEEPSEEK_INPUT_CNY_PER_1K", 0.002),
+                decimal("DEEPSEEK_OUTPUT_CNY_PER_1K", 0.008));
     }
 
     private static String environment(String name, String fallback) {

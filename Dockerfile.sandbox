@@ -1,0 +1,10 @@
+FROM eclipse-temurin:21-jdk-jammy
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git maven ripgrep patch \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --uid 1000 --create-home agentforge
+
+USER 1000:1000
+WORKDIR /workspace
+ENTRYPOINT []

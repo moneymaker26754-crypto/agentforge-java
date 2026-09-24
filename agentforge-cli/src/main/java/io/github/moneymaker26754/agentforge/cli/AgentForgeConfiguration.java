@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Set;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
 @Configuration
 public class AgentForgeConfiguration {
@@ -25,8 +26,10 @@ public class AgentForgeConfiguration {
         return new LocalSandboxExecutor(Set.of("java", "java.exe", "javac", "javac.exe", "mvn", "mvn.cmd",
                 "mvnw", "mvnw.cmd", "gradle", "gradle.bat", "gradlew", "gradlew.bat", "git", "git.exe", "rg", "rg.exe"));
     }
-    @Bean DockerSandboxExecutor dockerSandboxExecutor() { return new DockerSandboxExecutor(new DockerCommandFactory("agentforge-sandbox:21")); }
-    @Bean SandboxExecutor sandboxExecutor(DockerSandboxExecutor docker, LocalSandboxExecutor local) { return new RoutingSandboxExecutor(docker, local); }
+    @Bean DockerSandboxExecutor dockerSandboxExecutor() { return new DockerSandboxExecutor(new DockerCommandFactory("agentforge-sandbox:java21")); }
+    @Bean @Primary SandboxExecutor sandboxExecutor(DockerSandboxExecutor docker, LocalSandboxExecutor local) {
+        return new RoutingSandboxExecutor(docker, local);
+    }
     @Bean ToolRegistry toolRegistry(ObjectMapper mapper, List<ToolHandler<?>> handlers) { return new ReflectiveToolRegistry(mapper, handlers); }
     @Bean PolicyEngine policyEngine() { return new DefaultPolicyEngine(false); }
     @Bean AgentOperations agentOperations(SqliteCheckpointStore store, ToolRegistry tools, PolicyEngine policy,
@@ -34,6 +37,10 @@ public class AgentForgeConfiguration {
     @Bean DiagnosticProvider diagnosticProvider() { return new SystemDiagnosticProvider(); }
 
     static Path stateDirectory() {
+        String property = System.getProperty("agentforge.state.dir");
+        if (property != null && !property.isBlank()) return Path.of(property);
+        String configured = System.getenv("AGENTFORGE_STATE_DIR");
+        if (configured != null && !configured.isBlank()) return Path.of(configured);
         String local = System.getenv("LOCALAPPDATA");
         if (local != null && !local.isBlank()) return Path.of(local, "AgentForge");
         String xdg = System.getenv("XDG_STATE_HOME");
@@ -41,4 +48,3 @@ public class AgentForgeConfiguration {
         return Path.of(System.getProperty("user.home"), ".agentforge");
     }
 }
-

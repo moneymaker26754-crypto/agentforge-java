@@ -133,6 +133,16 @@ public final class ReflectiveToolRegistry implements ToolRegistry {
             ToolParam param = component.getAnnotation(ToolParam.class);
             ObjectNode property = properties.putObject(component.getName());
             property.put("type", jsonType(component.getType()));
+            if (List.class.isAssignableFrom(component.getType())) {
+                Type generic = component.getGenericType();
+                if (!(generic instanceof ParameterizedType parameterized)
+                        || parameterized.getActualTypeArguments().length != 1
+                        || parameterized.getActualTypeArguments()[0] != String.class) {
+                    throw new IllegalArgumentException("Only List<String> tool arguments are supported: "
+                            + argumentsType.getName() + "." + component.getName());
+                }
+                property.putObject("items").put("type", "string");
+            }
             if (param != null) {
                 property.put("description", param.description());
                 if (param.required()) {
@@ -182,4 +192,3 @@ public final class ReflectiveToolRegistry implements ToolRegistry {
         throw new IllegalArgumentException("Tool arguments must be a concrete record: " + handlerType.getName());
     }
 }
-
