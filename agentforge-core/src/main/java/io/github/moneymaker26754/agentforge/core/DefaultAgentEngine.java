@@ -17,6 +17,7 @@ public final class DefaultAgentEngine implements AgentEngine {
     private final ApprovalHandler approvalHandler;
     private final CheckpointStore checkpointStore;
     private final Clock clock;
+    private final ContextManager contextManager;
 
     public DefaultAgentEngine(ModelClient modelClient, ToolRegistry toolRegistry, PolicyEngine policyEngine,
             ApprovalHandler approvalHandler, CheckpointStore checkpointStore, Clock clock) {
@@ -26,6 +27,19 @@ public final class DefaultAgentEngine implements AgentEngine {
         this.approvalHandler = Objects.requireNonNull(approvalHandler);
         this.checkpointStore = Objects.requireNonNull(checkpointStore);
         this.clock = Objects.requireNonNull(clock);
+        this.contextManager = new ContextManager(text -> Math.max(1, text.length() / 4), 128_000, 0.75, 12);
+    }
+
+    public DefaultAgentEngine(ModelClient modelClient, ToolRegistry toolRegistry, PolicyEngine policyEngine,
+            ApprovalHandler approvalHandler, CheckpointStore checkpointStore, Clock clock,
+            ContextManager contextManager) {
+        this.modelClient = Objects.requireNonNull(modelClient);
+        this.toolRegistry = Objects.requireNonNull(toolRegistry);
+        this.policyEngine = Objects.requireNonNull(policyEngine);
+        this.approvalHandler = Objects.requireNonNull(approvalHandler);
+        this.checkpointStore = Objects.requireNonNull(checkpointStore);
+        this.clock = Objects.requireNonNull(clock);
+        this.contextManager = Objects.requireNonNull(contextManager);
     }
 
     @Override
@@ -36,17 +50,32 @@ public final class DefaultAgentEngine implements AgentEngine {
         var messages = new ArrayList<ChatMessage>();
         messages.add(ChatMessage.system(SYSTEM_PROMPT));
         messages.add(ChatMessage.user(request.task()));
-        Usage usage = Usage.zero();
-        int iterations = 0;
-        String previousFingerprint = null;
-        int repeatedCalls = 0;
         checkpointStore.append(SessionEvent.of(sessionId, sequence++, EventType.SESSION_STARTED, clock.instant(),
                 request.task()));
+        saveSnapshot(sessionId, sequence, RunStatus.RUNNING, messages, Usage.zero(), request, 0, null, 0, startedAt);
+        return executeLoop(sessionId, sequence, request, messages, Usage.zero(), 0, null, 0, startedAt);
+    }
 
+    private RunResult executeLoop(SessionId sessionId, long initialSequence, RunRequest request,
+            List<ChatMessage> restoredMessages, Usage restoredUsage, int restoredIterations,
+            String restoredFingerprint, int restoredRepeatedCalls, Instant startedAt) {
+        long sequence = initialSequence;
+        var messages = new ArrayList<>(restoredMessages);
+        Usage usage = restoredUsage;
+        int iterations = restoredIterations;
+        String previousFingerprint = restoredFingerprint;
+        int repeatedCalls = restoredRepeatedCalls;
         while (true) {
             TerminationReason beforeCall = budgetReason(request.budget(), usage, iterations, startedAt);
             if (beforeCall != null) {
                 return terminate(sessionId, sequence, RunStatus.BUDGET_EXHAUSTED, usage, iterations, beforeCall);
+            }
+
+            ContextPreparation prepared = contextManager.prepare(messages);
+            if (prepared.compressed()) {
+                messages = new ArrayList<>(prepared.messages());
+                checkpointStore.append(SessionEvent.of(sessionId, sequence++, EventType.CONTEXT_COMPRESSED,
+                        clock.instant(), prepared.tokensBefore() + "->" + prepared.tokensAfter()));
             }
 
             iterations++;
@@ -56,6 +85,8 @@ public final class DefaultAgentEngine implements AgentEngine {
             usage = usage.plus(response.usage());
             checkpointStore.append(SessionEvent.of(sessionId, sequence++, EventType.MODEL_RESPONSE, clock.instant(),
                     response.finishReason()));
+            saveSnapshot(sessionId, sequence, RunStatus.RUNNING, messages, usage, request, iterations,
+                    previousFingerprint, repeatedCalls, startedAt);
 
             TerminationReason afterCall = budgetReason(request.budget(), usage, iterations - 1, startedAt);
             if (afterCall != null) {
@@ -66,6 +97,8 @@ public final class DefaultAgentEngine implements AgentEngine {
                 messages.add(ChatMessage.assistant(response.content()));
                 checkpointStore.append(SessionEvent.of(sessionId, sequence, EventType.SESSION_COMPLETED,
                         clock.instant(), response.content()));
+                saveSnapshot(sessionId, sequence + 1, RunStatus.COMPLETED, messages, usage, request, iterations,
+                        previousFingerprint, repeatedCalls, startedAt);
                 return new RunResult(sessionId, RunStatus.COMPLETED, response.content(), usage,
                         TerminationReason.FINAL_ANSWER, iterations);
             }
@@ -85,14 +118,14 @@ public final class DefaultAgentEngine implements AgentEngine {
 
                 var definition = toolRegistry.find(call.name());
                 if (definition.isEmpty()) {
-                    messages.add(ChatMessage.tool(call.id(), "ERROR UNKNOWN_TOOL: " + call.name()));
+                    messages.add(ChatMessage.tool(call.id(), call.name(), "ERROR UNKNOWN_TOOL: " + call.name()));
                     continue;
                 }
                 var context = new ExecutionContext(sessionId, request.repository(), request.sandboxMode());
                 var invocation = new ToolInvocation(call, definition.get(), context);
                 var policy = policyEngine.decide(invocation);
                 if (policy.outcome() == PolicyOutcome.DENY) {
-                    messages.add(ChatMessage.tool(call.id(), "ERROR POLICY_DENIED: " + policy.reason()));
+                    messages.add(ChatMessage.tool(call.id(), call.name(), "ERROR POLICY_DENIED: " + policy.reason()));
                     continue;
                 }
                 if (policy.outcome() == PolicyOutcome.ASK) {
@@ -102,7 +135,7 @@ public final class DefaultAgentEngine implements AgentEngine {
                     checkpointStore.append(SessionEvent.of(sessionId, sequence++, EventType.APPROVAL_DECIDED,
                             clock.instant(), decision.name()));
                     if (decision == ApprovalDecision.REJECT) {
-                        messages.add(ChatMessage.tool(call.id(), "ERROR USER_REJECTED"));
+                        messages.add(ChatMessage.tool(call.id(), call.name(), "ERROR USER_REJECTED"));
                         continue;
                     }
                 }
@@ -111,9 +144,11 @@ public final class DefaultAgentEngine implements AgentEngine {
                 ToolResult result = definition.get().executor().execute(call.argumentsJson(), context);
                 checkpointStore.append(SessionEvent.of(sessionId, sequence++, EventType.TOOL_RESULT, clock.instant(),
                         call.id() + ":" + result.success()));
-                messages.add(ChatMessage.tool(call.id(), result.success()
+                messages.add(ChatMessage.tool(call.id(), call.name(), result.success()
                         ? result.content()
                         : "ERROR " + result.errorCode() + ": " + result.content()));
+                saveSnapshot(sessionId, sequence, RunStatus.RUNNING, messages, usage, request, iterations,
+                        previousFingerprint, repeatedCalls, startedAt);
             }
         }
     }
@@ -121,10 +156,31 @@ public final class DefaultAgentEngine implements AgentEngine {
     @Override
     public RunResult resume(SessionId sessionId) {
         var events = checkpointStore.replay(sessionId);
-        boolean uncertain = events.stream().anyMatch(event -> event.type() == EventType.TOOL_INTENT)
-                && events.stream().noneMatch(event -> event.type() == EventType.TOOL_RESULT);
-        return new RunResult(sessionId, uncertain ? RunStatus.UNCERTAIN : RunStatus.FAILED, "", Usage.zero(),
-                uncertain ? TerminationReason.UNCERTAIN_TOOL : TerminationReason.UNRECOVERABLE_ERROR, 0);
+        var snapshot = checkpointStore.latestSnapshot(sessionId);
+        if (snapshot.isEmpty() || snapshot.get().checkpoint() == null) {
+            return new RunResult(sessionId, RunStatus.FAILED, "", Usage.zero(),
+                    TerminationReason.UNRECOVERABLE_ERROR, 0);
+        }
+        SessionEvent unmatchedIntent = null;
+        for (SessionEvent event : events) {
+            if (event.type() == EventType.TOOL_INTENT) unmatchedIntent = event;
+            if (event.type() == EventType.TOOL_RESULT) unmatchedIntent = null;
+        }
+        if (unmatchedIntent != null) {
+            String[] parts = unmatchedIntent.payload().split(":", 2);
+            boolean idempotent = parts.length == 2 && toolRegistry.find(parts[1])
+                    .map(ToolDefinition::idempotent).orElse(false);
+            if (!idempotent) {
+                return new RunResult(sessionId, RunStatus.UNCERTAIN, "", snapshot.get().usage(),
+                        TerminationReason.UNCERTAIN_TOOL, snapshot.get().checkpoint().iterations());
+            }
+        }
+        SessionSnapshot state = snapshot.get();
+        RunCheckpoint checkpoint = state.checkpoint();
+        long nextSequence = events.isEmpty() ? 0 : events.get(events.size() - 1).sequence() + 1;
+        return executeLoop(sessionId, nextSequence, checkpoint.request(), state.messages(), state.usage(),
+                checkpoint.iterations(), checkpoint.previousFingerprint(), checkpoint.repeatedCalls(),
+                checkpoint.startedInstant());
     }
 
     private TerminationReason budgetReason(RunBudget budget, Usage usage, int iterations, Instant startedAt) {
@@ -152,5 +208,11 @@ public final class DefaultAgentEngine implements AgentEngine {
                 reason.name()));
         return new RunResult(sessionId, status, "", usage, reason, iterations);
     }
-}
 
+    private void saveSnapshot(SessionId sessionId, long sequence, RunStatus status, List<ChatMessage> messages,
+            Usage usage, RunRequest request, int iterations, String previousFingerprint, int repeatedCalls,
+            Instant startedAt) {
+        checkpointStore.saveSnapshot(new SessionSnapshot(sessionId, sequence, status, messages, usage, clock.instant(),
+                RunCheckpoint.from(request, iterations, previousFingerprint, repeatedCalls, startedAt)));
+    }
+}

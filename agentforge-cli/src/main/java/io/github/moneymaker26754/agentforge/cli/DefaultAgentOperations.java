@@ -37,8 +37,11 @@ public final class DefaultAgentOperations implements AgentOperations {
     }
 
     @Override public RunResult resume(SessionId id) {
-        ModelClient unused = (request, sink) -> { throw new IllegalStateException("resume requires a complete snapshot"); };
-        return engine(unused).resume(id);
+        var snapshot = store.latestSnapshot(id)
+                .orElseThrow(() -> new IllegalArgumentException("unknown session: " + id));
+        if (snapshot.checkpoint() == null) throw new IllegalStateException("session has no resumable metadata: " + id);
+        ProviderId provider = ProviderId.valueOf(snapshot.checkpoint().provider());
+        return engine(client(provider)).resume(id);
     }
 
     @Override public List<SessionId> sessions() { return store.listSessions(); }
@@ -88,4 +91,3 @@ public final class DefaultAgentOperations implements AgentOperations {
         return value == null || value.isBlank() ? fallback : Double.parseDouble(value);
     }
 }
-

@@ -6,6 +6,7 @@ import io.github.moneymaker26754.agentforge.core.ChatMessage;
 import io.github.moneymaker26754.agentforge.core.CheckpointStore;
 import io.github.moneymaker26754.agentforge.core.EventType;
 import io.github.moneymaker26754.agentforge.core.RunStatus;
+import io.github.moneymaker26754.agentforge.core.RunCheckpoint;
 import io.github.moneymaker26754.agentforge.core.SessionEvent;
 import io.github.moneymaker26754.agentforge.core.SessionId;
 import io.github.moneymaker26754.agentforge.core.SessionSnapshot;
@@ -107,10 +108,11 @@ public final class SqliteCheckpointStore implements CheckpointStore {
     public synchronized void saveSnapshot(SessionSnapshot snapshot) {
         try (Connection connection = connection();
                 var statement = connection.prepareStatement("""
-                        insert into session_snapshots(session_id, sequence, status, messages_json, usage_json, created_at)
-                        values (?, ?, ?, ?, ?, ?)
+                        insert into session_snapshots(session_id, sequence, status, messages_json, usage_json, created_at, checkpoint_json)
+                        values (?, ?, ?, ?, ?, ?, ?)
                         on conflict(session_id) do update set sequence=excluded.sequence, status=excluded.status,
-                        messages_json=excluded.messages_json, usage_json=excluded.usage_json, created_at=excluded.created_at
+                        messages_json=excluded.messages_json, usage_json=excluded.usage_json, created_at=excluded.created_at,
+                        checkpoint_json=excluded.checkpoint_json
                         """)) {
             statement.setString(1, snapshot.sessionId().value());
             statement.setLong(2, snapshot.sequence());
@@ -118,6 +120,7 @@ public final class SqliteCheckpointStore implements CheckpointStore {
             statement.setString(4, mapper.writeValueAsString(snapshot.messages()));
             statement.setString(5, mapper.writeValueAsString(snapshot.usage()));
             statement.setString(6, snapshot.createdAt().toString());
+            statement.setString(7, snapshot.checkpoint() == null ? null : mapper.writeValueAsString(snapshot.checkpoint()));
             statement.executeUpdate();
         } catch (Exception exception) {
             throw new IllegalStateException("Cannot save session snapshot", exception);
@@ -128,7 +131,7 @@ public final class SqliteCheckpointStore implements CheckpointStore {
     public synchronized Optional<SessionSnapshot> latestSnapshot(SessionId sessionId) {
         try (Connection connection = connection();
                 var statement = connection.prepareStatement("""
-                        select sequence, status, messages_json, usage_json, created_at
+                        select sequence, status, messages_json, usage_json, created_at, checkpoint_json
                         from session_snapshots where session_id = ?
                         """)) {
             statement.setString(1, sessionId.value());
@@ -136,9 +139,11 @@ public final class SqliteCheckpointStore implements CheckpointStore {
                 if (!row.next()) return Optional.empty();
                 List<ChatMessage> messages = mapper.readValue(row.getString("messages_json"), new TypeReference<>() {});
                 Usage usage = mapper.readValue(row.getString("usage_json"), Usage.class);
+                String checkpointJson = row.getString("checkpoint_json");
+                RunCheckpoint checkpoint = checkpointJson == null ? null : mapper.readValue(checkpointJson, RunCheckpoint.class);
                 return Optional.of(new SessionSnapshot(sessionId, row.getLong("sequence"),
                         RunStatus.valueOf(row.getString("status")), messages, usage,
-                        Instant.parse(row.getString("created_at"))));
+                        Instant.parse(row.getString("created_at")), checkpoint));
             }
         } catch (Exception exception) {
             throw new IllegalStateException("Cannot load session snapshot", exception);
@@ -179,9 +184,15 @@ public final class SqliteCheckpointStore implements CheckpointStore {
                       status text not null,
                       messages_json text not null,
                       usage_json text not null,
-                      created_at text not null
+                      created_at text not null,
+                      checkpoint_json text
                     )
                     """);
+            try {
+                statement.execute("alter table session_snapshots add column checkpoint_json text");
+            } catch (Exception ignored) {
+                // Existing databases already containing the column are valid.
+            }
         } catch (Exception exception) {
             throw new IllegalStateException("Cannot initialize checkpoint database", exception);
         }
@@ -215,4 +226,3 @@ public final class SqliteCheckpointStore implements CheckpointStore {
 
     private record LastEvent(long sequence, String hash) {}
 }
-

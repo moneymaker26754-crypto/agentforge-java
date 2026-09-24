@@ -83,6 +83,46 @@ class DefaultAgentEngineTest {
         assertThat(model.calls).isEqualTo(3);
     }
 
+    @Test
+    void compressesContextBeforeSendingNextModelRequest() {
+        var model = new ScriptedModelClient(
+                ModelResponse.toolCalls(List.of(new ToolCall("call-1", 0, "echo", "{\"text\":\"hello\"}")), Usage.zero()),
+                ModelResponse.finalAnswer("done", Usage.zero()));
+        var store = new MemoryCheckpointStore();
+        var context = new ContextManager(String::length, 60, 0.75, 1);
+        var engine = new DefaultAgentEngine(model, new EchoToolRegistry(), invocation -> PolicyDecision.allow("test"),
+                request -> ApprovalDecision.APPROVE_ONCE, store, CLOCK, context);
+
+        RunResult result = engine.run(new RunRequest(Path.of("."), "a deliberately long task that fills context",
+                ProviderId.DEEPSEEK, SandboxMode.LOCAL, RunBudget.defaults()));
+
+        assertThat(result.status()).isEqualTo(RunStatus.COMPLETED);
+        assertThat(store.events).extracting(SessionEvent::type).contains(EventType.CONTEXT_COMPRESSED);
+        assertThat(model.requests.get(1).messages()).anyMatch(message -> message.content().startsWith("[context-summary]"));
+    }
+
+    @Test
+    void resumesFromLatestSafeSnapshotWithoutRepeatingCompletedTool() {
+        var firstModel = new ScriptedModelClient(
+                ModelResponse.toolCalls(List.of(new ToolCall("call-1", 0, "echo", "{\"text\":\"hello\"}")), Usage.zero()),
+                ModelResponse.finalAnswer("done", Usage.zero()));
+        var store = new MemoryCheckpointStore();
+        var firstEngine = engine(firstModel, store, new EchoToolRegistry());
+        RunResult completed = firstEngine.run(request(RunBudget.defaults()));
+        SessionSnapshot checkpoint = store.snapshot.orElseThrow();
+        store.events.removeIf(event -> event.type() == EventType.SESSION_COMPLETED);
+        store.snapshot = Optional.of(new SessionSnapshot(checkpoint.sessionId(), checkpoint.sequence(), RunStatus.RUNNING,
+                checkpoint.messages().subList(0, checkpoint.messages().size() - 1), checkpoint.usage(), checkpoint.createdAt(),
+                checkpoint.checkpoint()));
+
+        var resumedModel = new ScriptedModelClient(ModelResponse.finalAnswer("resumed", Usage.zero()));
+        RunResult resumed = engine(resumedModel, store, new EchoToolRegistry()).resume(completed.sessionId());
+
+        assertThat(resumed.status()).isEqualTo(RunStatus.COMPLETED);
+        assertThat(resumed.answer()).isEqualTo("resumed");
+        assertThat(resumedModel.requests).hasSize(1);
+    }
+
     private DefaultAgentEngine engine(ModelClient model, CheckpointStore store, ToolRegistry tools) {
         return new DefaultAgentEngine(model, tools, invocation -> PolicyDecision.allow("test"),
                 request -> ApprovalDecision.APPROVE_ONCE, store, CLOCK);
@@ -145,6 +185,7 @@ class DefaultAgentEngineTest {
 
     private static final class MemoryCheckpointStore implements CheckpointStore {
         private final List<SessionEvent> events = new ArrayList<>();
+        private Optional<SessionSnapshot> snapshot = Optional.empty();
 
         @Override
         public void append(SessionEvent event) {
@@ -157,12 +198,13 @@ class DefaultAgentEngineTest {
         }
 
         @Override
-        public void saveSnapshot(SessionSnapshot snapshot) {}
+        public void saveSnapshot(SessionSnapshot snapshot) {
+            this.snapshot = Optional.of(snapshot);
+        }
 
         @Override
         public Optional<SessionSnapshot> latestSnapshot(SessionId sessionId) {
-            return Optional.empty();
+            return snapshot.filter(value -> value.sessionId().equals(sessionId));
         }
     }
 }
-

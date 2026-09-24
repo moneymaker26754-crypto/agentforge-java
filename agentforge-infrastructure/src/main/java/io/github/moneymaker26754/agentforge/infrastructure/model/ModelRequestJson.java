@@ -11,19 +11,19 @@ final class ModelRequestJson {
     private ModelRequestJson() {}
 
     static String deepSeek(ObjectMapper mapper, ChatRequest request) {
-        ObjectNode root = base(mapper, request);
+        ObjectNode root = base(mapper, request, false);
         root.put("stream", true);
         root.putObject("stream_options").put("include_usage", true);
         return write(mapper, root);
     }
 
     static String ollama(ObjectMapper mapper, ChatRequest request) {
-        ObjectNode root = base(mapper, request);
+        ObjectNode root = base(mapper, request, true);
         root.put("stream", true);
         return write(mapper, root);
     }
 
-    private static ObjectNode base(ObjectMapper mapper, ChatRequest request) {
+    private static ObjectNode base(ObjectMapper mapper, ChatRequest request, boolean ollama) {
         ObjectNode root = mapper.createObjectNode();
         root.put("model", request.model());
         ArrayNode messages = root.putArray("messages");
@@ -32,8 +32,11 @@ final class ModelRequestJson {
             json.put("role", message.role().name().toLowerCase());
             json.put("content", message.content());
             if (message.toolCallId() != null) {
-                json.put("tool_call_id", message.toolCallId());
-                json.put("tool_name", message.toolCallId());
+                if (ollama) {
+                    json.put("tool_name", message.toolName());
+                } else {
+                    json.put("tool_call_id", message.toolCallId());
+                }
             }
             if (!message.toolCalls().isEmpty()) {
                 ArrayNode calls = json.putArray("tool_calls");
@@ -71,4 +74,3 @@ final class ModelRequestJson {
         }
     }
 }
-
