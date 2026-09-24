@@ -36,7 +36,7 @@ jobs:
           docker run --rm --network none --cpus 2 --memory 4g --pids-limit 256 --user 1000:1000 agentforge-sandbox:java21 id
           docker run --rm --network none agentforge-sandbox:java21 sh -c \
             'if getent hosts example.com; then exit 9; else echo network-blocked; fi'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: reports-${{ matrix.os }}
