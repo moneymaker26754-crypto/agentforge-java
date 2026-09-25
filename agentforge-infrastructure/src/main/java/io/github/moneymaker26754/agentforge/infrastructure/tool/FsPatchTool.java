@@ -20,6 +20,7 @@ public final class FsPatchTool implements ToolHandler<FsPatchTool.Arguments> {
             }
             var path = new WorkspaceGuard(context.workspace()).resolveExisting(arguments.path());
             String content = Files.readString(path, StandardCharsets.UTF_8);
+            if (content.indexOf('\0') >= 0) return ToolResult.failure("BINARY_FILE", "binary files are not supported");
             int first = content.indexOf(arguments.expected());
             if (first < 0) return ToolResult.failure("PATCH_MISMATCH", "expected text was not found");
             if (content.indexOf(arguments.expected(), first + 1) >= 0) return ToolResult.failure("PATCH_AMBIGUOUS", "expected text appears more than once");

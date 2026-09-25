@@ -18,6 +18,10 @@ java -jar agentforge-cli/target/agentforge-cli-0.1.0-SNAPSHOT.jar \
 - `micro-full-results.csv`：便于表格分析的原始行。
 - `micro-full-manifest.json`：数据版本、profile、case id 与费用上限。
 
+每个 case 都直接驱动生产组件（流解析器、反射工具注册中心、`WorkspaceGuard`、策略引擎、本地沙箱、Agent Loop 与 SQLite 存储），不变量回归会让对应 case 变红，因此 `30/30` 表示这些组件当前仍然成立。
+
+已归档结果在 `benchmark-results/2026-09-24/`：`micro-full-results.json`、`micro-full-results.csv` 与 `micro-full-manifest.json`（`metrics.passed = 30/30`）。
+
 ## Java20 固定样本
 
 数据集：`SWE-bench/SWE-bench_Multilingual`，revision `846e647b9f33c0b51b739d005d13d85493c9af09`。Java 仓库为 Apache Druid、Apache Lucene、Gson、JavaParser、Lombok、RxJava；对 43 个 Java instance_id 排序取前 20，清单在 `Java20Manifest`，不替换失败题。

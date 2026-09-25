@@ -3,7 +3,7 @@
   "profile" : "full",
   "dataset" : "agentforge-deterministic-micro",
   "datasetRevision" : "local-deterministic-v1",
-  "instanceIds" : [ "stream/sse-fragment-name", "stream/sse-fragment-arguments", "stream/ndjson-split-lines", "stream/multiple-tool-calls", "stream/malformed-json", "stream/disconnect", "tool/unknown-name", "tool/missing-required", "tool/wrong-type", "tool/range-violation", "tool/schema-repair-once", "tool/record-binding", "security/path-traversal", "security/absolute-path", "security/symlink-escape", "security/binary-patch", "security/oversized-patch", "security/shell-metacharacter", "security/dangerous-command", "security/network-denied", "runtime/timeout", "runtime/output-truncation", "runtime/read-parallelism", "runtime/write-serialization", "loop/repeated-call", "loop/token-budget", "loop/final-answer", "recovery/completed-not-replayed", "recovery/non-idempotent-uncertain", "audit/hash-tamper" ],
+  "instanceIds" : [ "stream/sse-fragment-name", "stream/sse-fragment-arguments", "stream/ndjson-split-lines", "stream/multiple-tool-calls", "stream/malformed-json", "stream/disconnect", "tool/unknown-name", "tool/missing-required", "tool/wrong-type", "tool/range-violation", "tool/closed-schema", "tool/record-binding", "security/path-traversal", "security/absolute-path", "security/symlink-escape", "security/binary-patch", "security/oversized-patch", "security/shell-metacharacter", "security/dangerous-command", "security/network-denied", "runtime/timeout", "runtime/output-truncation", "runtime/concurrent-stream-drain", "runtime/serial-tool-order", "loop/repeated-call", "loop/token-budget", "loop/final-answer", "recovery/completed-not-replayed", "recovery/non-idempotent-uncertain", "audit/hash-tamper" ],
   "costCapCny" : 0.0,
-  "generatedAt" : "2026-09-24T04:09:10.012186900Z"
+  "generatedAt" : "2026-09-25T05:20:42.137616600Z"
 }

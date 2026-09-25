@@ -50,7 +50,7 @@ human-in-the-loop 不是简单 `Scanner`：概念上需要 `WAITING_APPROVAL` �
 
 路径检查先拒绝绝对路径和 `..`，再把目标规范化到 workspace；对已存在路径调用 real path，防止符号链接逃逸；新文件检查最近的已存在父目录。补丁工具使用精确旧块替换和大小上限，拒绝二进制内容。
 
-命令工具只接收 argv 数组，不接收 shell 字符串，所以 `;`、`&&`、`$()` 不获得解释机会。执行器还有 allowlist、工作目录、超时、输出截断。只读工具可以在 Java 21 虚拟线程上并行；写文件、补丁和命令必须串行，以免工具之间看到不可重复的工作区状态。
+命令工具只接收 argv 数组，不接收 shell 字符串，所以 `;`、`&&`、`$()` 不获得解释机会。执行器还有 allowlist、工作目录、超时、输出截断。Agent Loop 按模型返回顺序串行执行工具调用，避免工具之间看到不可重复的工作区状态；只读批次并行是路线图项，当前未实现。
 
 ## 8. Docker 与本地执行
 
@@ -72,7 +72,7 @@ SHA-256(previousHash + sessionId + sequence + type + occurredAt + payload)
 
 ## 10. 并发与背压
 
-并行只适用于声明为幂等且风险为 READ 的工具。虚拟线程降低阻塞 I/O 的线程成本，但没有取消资源限制的必要：仍需全局并发上限、每工具超时、输出上限和结构化取消。写操作串行相当于为 workspace 提供一条可审计的提交日志。
+并行只适用于声明为幂等且风险为 READ 的工具，当前版本尚未实现：Agent Loop 按模型返回顺序逐个执行工具调用，写操作与命令串行，相当于为 workspace 提供一条可审计的提交日志。虚拟线程目前只用在子进程 I/O 上——`LocalSandboxExecutor` 用虚拟线程并发消费 stdout 与 stderr，避免单侧管道写满导致子进程阻塞（微基准 `runtime/concurrent-stream-drain` 覆盖该不变量）。若要做只读并行，还需要依赖分析、按 call index 回灌、全局并发上限与结构化取消。
 
 流式解析中的 accumulator 按 call index 分区；同一 index 的碎片保持顺序。模型网络线程只负责解析并投递 delta，不直接执行工具，避免慢命令反向阻塞 HTTP body 消费。
 
