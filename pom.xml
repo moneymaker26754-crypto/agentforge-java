@@ -26,7 +26,7 @@
         <jackson.version>2.19.4</jackson.version>
         <sqlite.version>3.50.3.0</sqlite.version>
         <junit.version>5.13.4</junit.version>
-        <assertj.version>3.27.6</assertj.version>
+        <assertj.version>3.27.7</assertj.version>
     </properties>
 
     <dependencyManagement>
