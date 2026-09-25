@@ -21,7 +21,7 @@
         <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>${java.version}</maven.compiler.release>
-        <spring-boot.version>3.5.13</spring-boot.version>
+        <spring-boot.version>4.1.1</spring-boot.version>
         <picocli.version>4.7.7</picocli.version>
         <jackson.version>2.19.4</jackson.version>
         <sqlite.version>3.50.3.0</sqlite.version>
