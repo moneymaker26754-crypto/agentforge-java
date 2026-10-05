@@ -3,7 +3,8 @@ package io.github.moneymaker26754.agentforge.cli;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.moneymaker26754.agentforge.eval.BenchmarkReport;
 import io.github.moneymaker26754.agentforge.eval.BenchmarkReportWriter;
-import io.github.moneymaker26754.agentforge.eval.Java20BenchmarkRunner;
+import io.github.moneymaker26754.agentforge.eval.CiAgentBenchmarkRunner;
+import io.github.moneymaker26754.agentforge.eval.Java21BenchmarkRunner;
 import io.github.moneymaker26754.agentforge.eval.MicroBenchmarkRunner;
 import io.github.moneymaker26754.agentforge.eval.ReadmeMetricsRenderer;
 import java.nio.file.Files;
@@ -19,7 +20,7 @@ import picocli.CommandLine.Spec;
 public final class EvalCommand implements Runnable {
     @Override public void run() { CommandLine.usage(this, System.out); }
 
-    @Command(name = "run", description = "Run micro or Java20 evaluation")
+    @Command(name = "run", description = "Run micro, ci-agent or Java21 evaluation")
     public static final class Run implements Callable<Integer> {
         private final ObjectMapper mapper;
         @Option(names = "--suite", required = true) private String suite;
@@ -33,11 +34,16 @@ public final class EvalCommand implements Runnable {
             BenchmarkReport report;
             if ("micro".equalsIgnoreCase(suite)) {
                 report = new MicroBenchmarkRunner().run(profile);
-            } else if ("java20".equalsIgnoreCase(suite)) {
-                report = new Java20BenchmarkRunner().environmentFailed(profile,
+            } else if ("ci-agent".equalsIgnoreCase(suite)) {
+                try (var runner = new CiAgentBenchmarkRunner()) {
+                    report = runner.run(profile);
+                }
+            } else if ("java21".equalsIgnoreCase(suite)) {
+                report = new Java21BenchmarkRunner().environmentFailed(profile,
                         "SWE-bench harness was not executed by this lightweight command; see docs/evaluation.md");
             } else {
-                throw new CommandLine.ParameterException(spec.commandLine(), "suite must be micro or java20");
+                throw new CommandLine.ParameterException(spec.commandLine(),
+                        "suite must be micro, ci-agent or java21");
             }
             new BenchmarkReportWriter(mapper).write(report, output);
             spec.commandLine().getOut().printf("suite=%s profile=%s passed=%d/%d environment_failed=%d output=%s%n",

@@ -10,22 +10,20 @@ import java.net.http.HttpClient;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
-import java.util.Locale;
-import java.util.Scanner;
 
 public final class DefaultAgentOperations implements AgentOperations {
     private final SqliteCheckpointStore store;
     private final ToolRegistry tools;
-    private final PolicyEngine policy;
+    private final ToolExecutionGate gate;
     private final ObjectMapper mapper;
     private final HttpClient http;
     private final SensitiveDataRedactor redactor;
 
-    public DefaultAgentOperations(SqliteCheckpointStore store, ToolRegistry tools, PolicyEngine policy,
+    public DefaultAgentOperations(SqliteCheckpointStore store, ToolRegistry tools, ToolExecutionGate gate,
             ObjectMapper mapper, HttpClient http) {
         this.store = store;
         this.tools = tools;
-        this.policy = policy;
+        this.gate = gate;
         this.mapper = mapper;
         this.http = http;
         this.redactor = new SensitiveDataRedactor(mapper);
@@ -62,13 +60,7 @@ public final class DefaultAgentOperations implements AgentOperations {
     }
 
     private DefaultAgentEngine engine(ModelClient client) {
-        return new DefaultAgentEngine(client, tools, policy, this::approve, store, Clock.systemUTC());
-    }
-
-    private ApprovalDecision approve(ApprovalRequest request) {
-        System.err.printf("Approve %s (%s)? [y/N] ", request.invocation().call().name(), request.reason());
-        String answer = new Scanner(System.in).nextLine().trim().toLowerCase(Locale.ROOT);
-        return answer.equals("y") || answer.equals("yes") ? ApprovalDecision.APPROVE_ONCE : ApprovalDecision.REJECT;
+        return new DefaultAgentEngine(client, tools, gate, store, Clock.systemUTC());
     }
 
     private ModelClient client(ProviderId provider) {
