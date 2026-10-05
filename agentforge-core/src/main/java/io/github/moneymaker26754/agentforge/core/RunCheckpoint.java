@@ -7,15 +7,21 @@ import java.time.Instant;
 /** JSON-friendly run metadata needed to continue a session after process restart. */
 public record RunCheckpoint(String repository, String task, String provider, String sandboxMode,
         int maxIterations, long maxWallMillis, long maxInputTokens, long maxOutputTokens, double maxCostCny,
-        int repeatedToolLimit, int iterations, String previousFingerprint, int repeatedCalls, String startedAt) {
+        int repeatedToolLimit, int iterations, String previousFingerprint, int repeatedCalls, String startedAt,
+        AgentPhase phase, PendingApproval pendingApproval) {
 
     public static RunCheckpoint from(RunRequest request, int iterations, String previousFingerprint,
             int repeatedCalls, Instant startedAt) {
+        return from(request, iterations, previousFingerprint, repeatedCalls, startedAt, AgentPhase.PLAN, null);
+    }
+
+    public static RunCheckpoint from(RunRequest request, int iterations, String previousFingerprint,
+            int repeatedCalls, Instant startedAt, AgentPhase phase, PendingApproval pendingApproval) {
         RunBudget budget = request.budget();
         return new RunCheckpoint(request.repository().toString(), request.task(), request.provider().name(),
                 request.sandboxMode().name(), budget.maxIterations(), budget.maxWallTime().toMillis(),
                 budget.maxInputTokens(), budget.maxOutputTokens(), budget.maxCostCny(), budget.repeatedToolLimit(),
-                iterations, previousFingerprint, repeatedCalls, startedAt.toString());
+                iterations, previousFingerprint, repeatedCalls, startedAt.toString(), phase, pendingApproval);
     }
 
     public RunRequest request() {
@@ -26,5 +32,10 @@ public record RunCheckpoint(String repository, String task, String provider, Str
 
     public Instant startedInstant() {
         return Instant.parse(startedAt);
+    }
+
+    /** Snapshots written before the state machine existed carry no phase; treat them as {@code PLAN}. */
+    public AgentPhase effectivePhase() {
+        return phase == null ? AgentPhase.PLAN : phase;
     }
 }

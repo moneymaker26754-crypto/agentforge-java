@@ -11,6 +11,7 @@ public enum TerminationReason {
     USER_CANCELLED,
     POLICY_DENIED,
     UNRECOVERABLE_ERROR,
-    UNCERTAIN_TOOL
+    UNCERTAIN_TOOL,
+    WAITING_APPROVAL
 }
 

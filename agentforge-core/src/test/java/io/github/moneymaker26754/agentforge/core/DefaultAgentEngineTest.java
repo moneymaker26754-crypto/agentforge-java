@@ -30,7 +30,11 @@ class DefaultAgentEngineTest {
         assertThat(result.answer()).isEqualTo("fixed");
         assertThat(result.usage()).isEqualTo(new Usage(12, 4, 0.01));
         assertThat(store.events).extracting(SessionEvent::type)
-                .containsExactly(EventType.SESSION_STARTED, EventType.MODEL_RESPONSE, EventType.SESSION_COMPLETED);
+                .containsExactly(EventType.SESSION_STARTED, EventType.PHASE_ENTERED, EventType.MODEL_RESPONSE,
+                        EventType.PHASE_ENTERED, EventType.SESSION_COMPLETED);
+        assertThat(store.events).extracting(SessionEvent::payload)
+                .filteredOn(payload -> List.of("PLAN", "REFLECT").contains(payload))
+                .containsExactly("PLAN", "REFLECT");
     }
 
     @Test
@@ -208,6 +212,184 @@ class DefaultAgentEngineTest {
         assertThat(resumed.terminationReason()).isEqualTo(TerminationReason.MAX_ITERATIONS);
         assertThat(unused.requests).isEmpty();
         assertThat(store.events).hasSize(eventsBeforeResume);
+    }
+
+    @Test
+    void traversesDocumentedPhasesAroundToolExecution() {
+        var model = new ScriptedModelClient(
+                ModelResponse.toolCalls(List.of(new ToolCall("call-1", 0, "echo", "{\"text\":\"hello\"}")), Usage.zero()),
+                ModelResponse.finalAnswer("done", Usage.zero()));
+        var store = new MemoryCheckpointStore();
+        var engine = engine(model, store, new EchoToolRegistry());
+
+        RunResult result = engine.run(request(RunBudget.defaults()));
+
+        assertThat(result.status()).isEqualTo(RunStatus.COMPLETED);
+        assertThat(store.events).extracting(SessionEvent::type).containsSubsequence(
+                EventType.PHASE_ENTERED, EventType.MODEL_RESPONSE,
+                EventType.PHASE_ENTERED, EventType.PHASE_ENTERED, EventType.PHASE_ENTERED,
+                EventType.TOOL_INTENT, EventType.TOOL_RESULT, EventType.PHASE_ENTERED,
+                EventType.SESSION_COMPLETED);
+        assertThat(store.events).extracting(SessionEvent::payload)
+                .filteredOn(payload -> List.of("PLAN", "VALIDATE", "PRE_TOOL_USE", "EXECUTE", "OBSERVE", "REFLECT")
+                        .contains(payload))
+                .containsExactly("PLAN", "VALIDATE", "PRE_TOOL_USE", "EXECUTE", "OBSERVE", "PLAN", "REFLECT");
+    }
+
+    @Test
+    void suspendsInWaitingApprovalWhenHandlerWaits() {
+        var tool = new EchoToolRegistry();
+        var model = new ScriptedModelClient(
+                ModelResponse.toolCalls(List.of(new ToolCall("call-1", 0, "echo", "{\"text\":\"hello\"}")), Usage.zero()));
+        var store = new MemoryCheckpointStore();
+        var engine = new DefaultAgentEngine(model, tool,
+                ToolExecutionGate.compose(null, invocation -> PolicyDecision.ask("needs human"),
+                        request -> ApprovalDecision.WAITING),
+                store, CLOCK);
+
+        RunResult result = engine.run(request(RunBudget.defaults()));
+
+        assertThat(result.status()).isEqualTo(RunStatus.WAITING_APPROVAL);
+        assertThat(result.terminationReason()).isEqualTo(TerminationReason.WAITING_APPROVAL);
+        assertThat(tool.invocations).isEmpty();
+        assertThat(store.events).extracting(SessionEvent::type)
+                .contains(EventType.APPROVAL_REQUESTED, EventType.APPROVAL_PENDING);
+        SessionSnapshot snapshot = store.snapshot.orElseThrow();
+        assertThat(snapshot.status()).isEqualTo(RunStatus.WAITING_APPROVAL);
+        PendingApproval pending = snapshot.checkpoint().pendingApproval();
+        assertThat(pending).isNotNull();
+        assertThat(pending.approvalId()).isNotBlank();
+        assertThat(pending.toolCallId()).isEqualTo("call-1");
+        assertThat(pending.toolName()).isEqualTo("echo");
+        assertThat(pending.argumentsJson()).isEqualTo("{\"text\":\"hello\"}");
+        assertThat(pending.reason()).isEqualTo("needs human");
+    }
+
+    @Test
+    void resumeOfWaitingSessionWithoutDecisionIsIdempotent() {
+        var model = new ScriptedModelClient(
+                ModelResponse.toolCalls(List.of(new ToolCall("call-1", 0, "echo", "{\"text\":\"hello\"}")), Usage.zero()));
+        var store = new MemoryCheckpointStore();
+        var engine = new DefaultAgentEngine(model, new EchoToolRegistry(),
+                ToolExecutionGate.compose(null, invocation -> PolicyDecision.ask("needs human"),
+                        request -> ApprovalDecision.WAITING),
+                store, CLOCK);
+        RunResult first = engine.run(request(RunBudget.defaults()));
+        int eventsBeforeResume = store.events.size();
+
+        RunResult resumed = engine.resume(first.sessionId());
+
+        assertThat(resumed.status()).isEqualTo(RunStatus.WAITING_APPROVAL);
+        assertThat(store.events).hasSize(eventsBeforeResume);
+    }
+
+    @Test
+    void resumeWithApproveExecutesPendingCallAndContinues() {
+        var waitingTool = new EchoToolRegistry();
+        var waitingModel = new ScriptedModelClient(
+                ModelResponse.toolCalls(List.of(new ToolCall("call-1", 0, "echo", "{\"text\":\"hello\"}")), Usage.zero()));
+        var store = new MemoryCheckpointStore();
+        var waitingEngine = new DefaultAgentEngine(waitingModel, waitingTool,
+                ToolExecutionGate.compose(null, invocation -> PolicyDecision.ask("needs human"),
+                        request -> ApprovalDecision.WAITING),
+                store, CLOCK);
+        RunResult waiting = waitingEngine.run(request(RunBudget.defaults()));
+        assertThat(waitingTool.invocations).isEmpty();
+
+        var tool = new EchoToolRegistry();
+        var resumedModel = new ScriptedModelClient(ModelResponse.finalAnswer("resumed", Usage.zero()));
+        var engine = engine(resumedModel, store, tool);
+
+        RunResult resumed = engine.resume(waiting.sessionId(), ApprovalDecision.APPROVE_ONCE);
+
+        assertThat(resumed.status()).isEqualTo(RunStatus.COMPLETED);
+        assertThat(resumed.answer()).isEqualTo("resumed");
+        assertThat(tool.invocations).containsExactly("{\"text\":\"hello\"}");
+        assertThat(store.events).extracting(SessionEvent::type)
+                .contains(EventType.APPROVAL_DECIDED, EventType.TOOL_INTENT, EventType.TOOL_RESULT);
+        assertThat(store.events).extracting(SessionEvent::type)
+                .filteredOn(type -> type == EventType.APPROVAL_PENDING).hasSize(1);
+    }
+
+    @Test
+    void resumeWithRejectFeedsUserRejectedBackWithoutExecuting() {
+        var waitingModel = new ScriptedModelClient(
+                ModelResponse.toolCalls(List.of(new ToolCall("call-1", 0, "echo", "{\"text\":\"hello\"}")), Usage.zero()));
+        var store = new MemoryCheckpointStore();
+        var waitingEngine = new DefaultAgentEngine(waitingModel, new EchoToolRegistry(),
+                ToolExecutionGate.compose(null, invocation -> PolicyDecision.ask("needs human"),
+                        request -> ApprovalDecision.WAITING),
+                store, CLOCK);
+        RunResult waiting = waitingEngine.run(request(RunBudget.defaults()));
+
+        var tool = new EchoToolRegistry();
+        var resumedModel = new ScriptedModelClient(ModelResponse.finalAnswer("after reject", Usage.zero()));
+        var engine = engine(resumedModel, store, tool);
+
+        RunResult resumed = engine.resume(waiting.sessionId(), ApprovalDecision.REJECT);
+
+        assertThat(resumed.status()).isEqualTo(RunStatus.COMPLETED);
+        assertThat(tool.invocations).isEmpty();
+        assertThat(resumedModel.requests).flatExtracting(ChatRequest::messages).extracting(ChatMessage::content)
+                .contains("ERROR USER_REJECTED");
+    }
+
+    @Test
+    void validationFailureSkipsExecutionAndReportsErrorToModel() {
+        var tool = new EchoToolRegistry();
+        var model = new ScriptedModelClient(
+                ModelResponse.toolCalls(List.of(new ToolCall("bad", 0, "echo", "{\"text\":\"bad\"}")), Usage.zero()),
+                ModelResponse.finalAnswer("done", Usage.zero()));
+        var store = new MemoryCheckpointStore();
+        var engine = new DefaultAgentEngine(model, tool, ToolExecutionGate.compose(
+                (definition, json) -> json.contains("bad")
+                        ? Optional.of("bad arguments rejected")
+                        : Optional.empty(),
+                invocation -> PolicyDecision.allow("test"), request -> ApprovalDecision.APPROVE_ONCE),
+                store, CLOCK);
+
+        RunResult result = engine.run(request(RunBudget.defaults()));
+
+        assertThat(result.status()).isEqualTo(RunStatus.COMPLETED);
+        assertThat(tool.invocations).isEmpty();
+        assertThat(store.events).extracting(SessionEvent::type).contains(EventType.VALIDATION_FAILED);
+        assertThat(model.requests).flatExtracting(ChatRequest::messages).extracting(ChatMessage::content)
+                .contains("ERROR INVALID_ARGUMENTS: bad arguments rejected");
+    }
+
+    @Test
+    void sessionMetricsCountPhasesCallsAndFailures() {
+        var store = new MemoryCheckpointStore();
+        var id = new SessionId("metrics");
+        RunRequest request = request(RunBudget.defaults());
+        store.events.add(SessionEvent.of(id, 0, EventType.SESSION_STARTED, CLOCK.instant(), "start"));
+        store.events.add(SessionEvent.of(id, 1, EventType.PHASE_ENTERED, CLOCK.instant(), "PLAN"));
+        store.events.add(SessionEvent.of(id, 2, EventType.MODEL_RESPONSE, CLOCK.instant(), "tool_calls"));
+        store.events.add(SessionEvent.of(id, 3, EventType.TOOL_INTENT, CLOCK.instant(), "c1:echo"));
+        store.events.add(SessionEvent.of(id, 4, EventType.TOOL_RESULT, CLOCK.instant(), "c1:true"));
+        store.events.add(SessionEvent.of(id, 5, EventType.TOOL_INTENT, CLOCK.instant(), "c2:echo"));
+        store.events.add(SessionEvent.of(id, 6, EventType.TOOL_RESULT, CLOCK.instant(), "c2:false"));
+        store.snapshot = Optional.of(new SessionSnapshot(id, 6, RunStatus.COMPLETED,
+                List.of(ChatMessage.system("s"), ChatMessage.user("goal")), new Usage(20, 8, 0.1), CLOCK.instant(),
+                RunCheckpoint.from(request, 3, null, 0, CLOCK.instant())));
+
+        SessionMetrics metrics = SessionMetrics.of(store.replay(id), store.latestSnapshot(id));
+
+        assertThat(metrics.iterations()).isEqualTo(3);
+        assertThat(metrics.modelCalls()).isEqualTo(1);
+        assertThat(metrics.toolCalls()).isEqualTo(2);
+        assertThat(metrics.toolFailures()).isEqualTo(1);
+        assertThat(metrics.phaseEntries()).containsEntry(AgentPhase.PLAN, 1);
+        assertThat(metrics.inputTokens()).isEqualTo(20);
+        assertThat(metrics.outputTokens()).isEqualTo(8);
+        assertThat(metrics.costCny()).isEqualTo(0.1);
+    }
+
+    @Test
+    void legacyCheckpointWithoutPhaseDefaultsToPlanAndNullPending() {
+        RunCheckpoint checkpoint = RunCheckpoint.from(request(RunBudget.defaults()), 0, null, 0, CLOCK.instant());
+        assertThat(checkpoint.effectivePhase()).isEqualTo(AgentPhase.PLAN);
+        assertThat(checkpoint.pendingApproval()).isNull();
     }
 
     private void assertBudgetTermination(Usage usage, RunBudget budget, TerminationReason reason) {

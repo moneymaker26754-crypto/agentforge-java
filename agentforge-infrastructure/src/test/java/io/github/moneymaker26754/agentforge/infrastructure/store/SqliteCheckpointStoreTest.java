@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.moneymaker26754.agentforge.core.AgentPhase;
 import io.github.moneymaker26754.agentforge.core.ChatMessage;
 import io.github.moneymaker26754.agentforge.core.EventType;
+import io.github.moneymaker26754.agentforge.core.PendingApproval;
 import io.github.moneymaker26754.agentforge.core.RunStatus;
 import io.github.moneymaker26754.agentforge.core.RunCheckpoint;
 import io.github.moneymaker26754.agentforge.core.SessionEvent;
@@ -60,7 +62,8 @@ class SqliteCheckpointStoreTest {
         var store = store();
         var id = new SessionId("session-3");
         var checkpoint = new RunCheckpoint(tempDir.toString(), "fix", "DEEPSEEK", "DOCKER", 30, 1_200_000,
-                200_000, 30_000, 50, 3, 4, "fingerprint", 1, "2026-01-01T00:00:00Z");
+                200_000, 30_000, 50, 3, 4, "fingerprint", 1, "2026-01-01T00:00:00Z", AgentPhase.PRE_TOOL_USE,
+                new PendingApproval("a1", "c1", "gitCommit", "{}", "confirm"));
         var snapshot = new SessionSnapshot(id, 25, RunStatus.WAITING_APPROVAL,
                 List.of(ChatMessage.system("system"), ChatMessage.user("goal")),
                 new Usage(10, 3, 0.2), Instant.parse("2026-01-01T00:00:00Z"), checkpoint);

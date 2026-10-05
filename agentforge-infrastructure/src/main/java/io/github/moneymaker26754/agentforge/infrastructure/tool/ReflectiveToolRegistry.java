@@ -20,13 +20,20 @@ import java.util.Optional;
 public final class ReflectiveToolRegistry implements ToolRegistry {
     private final ObjectMapper mapper;
     private final Map<String, ToolDefinition> definitions;
+    private final ReflectiveToolArgumentsValidator validator;
 
     public ReflectiveToolRegistry(ObjectMapper mapper, List<? extends ToolHandler<?>> handlers) {
         this.mapper = mapper;
         this.definitions = new LinkedHashMap<>();
+        this.validator = new ReflectiveToolArgumentsValidator(mapper, handlers);
         for (ToolHandler<?> handler : handlers) {
             register(handler);
         }
+    }
+
+    /** The VALIDATE-stage validator for the engine's PreToolUse gate; covers exactly these handlers. */
+    public ReflectiveToolArgumentsValidator validator() {
+        return validator;
     }
 
     @Override
@@ -48,7 +55,7 @@ public final class ReflectiveToolRegistry implements ToolRegistry {
         if (annotation == null) {
             throw new IllegalArgumentException("Tool handler is missing @AgentTool: " + handlerType.getName());
         }
-        Class<? extends Record> argumentsType = findArgumentsType(handlerType);
+        Class<? extends Record> argumentsType = ReflectiveToolArgumentsValidator.findArgumentsType(handlerType);
         String schema = generateSchema(argumentsType);
         ToolDefinition definition = new ToolDefinition(annotation.name(), annotation.description(), schema,
                 annotation.risk(), annotation.idempotent(),
@@ -63,7 +70,7 @@ public final class ReflectiveToolRegistry implements ToolRegistry {
             io.github.moneymaker26754.agentforge.core.ExecutionContext context) {
         try {
             JsonNode node = mapper.readTree(json);
-            String validationError = validate(node, argumentsType);
+            String validationError = ReflectiveToolArgumentsValidator.validate(node, argumentsType);
             if (validationError != null) {
                 return ToolResult.failure("INVALID_ARGUMENTS", validationError);
             }
@@ -72,55 +79,6 @@ public final class ReflectiveToolRegistry implements ToolRegistry {
         } catch (Exception exception) {
             return ToolResult.failure("INVALID_ARGUMENTS", exception.getMessage());
         }
-    }
-
-    private String validate(JsonNode node, Class<? extends Record> argumentsType) {
-        if (node == null || !node.isObject()) {
-            return "arguments must be a JSON object";
-        }
-        var allowed = java.util.Arrays.stream(argumentsType.getRecordComponents())
-                .map(RecordComponent::getName).collect(java.util.stream.Collectors.toSet());
-        var fields = node.fieldNames();
-        while (fields.hasNext()) {
-            String field = fields.next();
-            if (!allowed.contains(field)) {
-                return "unknown argument: " + field;
-            }
-        }
-        for (RecordComponent component : argumentsType.getRecordComponents()) {
-            ToolParam param = component.getAnnotation(ToolParam.class);
-            JsonNode value = node.get(component.getName());
-            if (param != null && param.required() && (value == null || value.isNull())) {
-                return "missing required argument: " + component.getName();
-            }
-            if (value != null && !value.isNull() && !matches(value, component.getType())) {
-                return "invalid type for argument: " + component.getName();
-            }
-            if (value != null && value.isNumber() && param != null
-                    && (value.asLong() < param.min() || value.asLong() > param.max())) {
-                return "argument outside allowed range: " + component.getName();
-            }
-        }
-        return null;
-    }
-
-    private boolean matches(JsonNode value, Class<?> type) {
-        if (type == String.class || type.isEnum()) {
-            return value.isTextual();
-        }
-        if (type == boolean.class || type == Boolean.class) {
-            return value.isBoolean();
-        }
-        if (type == int.class || type == Integer.class || type == long.class || type == Long.class) {
-            return value.isIntegralNumber();
-        }
-        if (type == double.class || type == Double.class) {
-            return value.isNumber();
-        }
-        if (List.class.isAssignableFrom(type)) {
-            return value.isArray();
-        }
-        return type.isRecord() && value.isObject();
     }
 
     private String generateSchema(Class<? extends Record> argumentsType) {
@@ -176,19 +134,5 @@ public final class ReflectiveToolRegistry implements ToolRegistry {
         if (List.class.isAssignableFrom(type)) return "array";
         if (type.isRecord()) return "object";
         return "string";
-    }
-
-    @SuppressWarnings("unchecked")
-    private Class<? extends Record> findArgumentsType(Class<?> handlerType) {
-        for (Type genericInterface : handlerType.getGenericInterfaces()) {
-            if (genericInterface instanceof ParameterizedType parameterized
-                    && parameterized.getRawType() == ToolHandler.class) {
-                Type argument = parameterized.getActualTypeArguments()[0];
-                if (argument instanceof Class<?> argumentClass && argumentClass.isRecord()) {
-                    return (Class<? extends Record>) argumentClass;
-                }
-            }
-        }
-        throw new IllegalArgumentException("Tool arguments must be a concrete record: " + handlerType.getName());
     }
 }
