@@ -65,7 +65,7 @@ java -jar agentforge-server/target/agentforge-server-0.2.0-SNAPSHOT.jar
 
 关键环境变量：`DEEPSEEK_API_KEY`、`GITHUB_TOKEN`（可选，提升 GitHub API 限额）、`GITHUB_WEBHOOK_SECRET`（Control Plane 验签）。
 
-更详细的实现说明见 [项目梳理文档](docs/project-overview.md) 与 [技术手册](docs/technical-handbook.md)。
+更详细的实现说明见 [项目梳理文档](docs/project-overview.md) 与 [技术手册](docs/technical-handbook.md)；业务视角的痛点、方案链路与项目亮点见 [项目梳理与业务亮点](docs/project-narrative.md)。
 
 ## License
 

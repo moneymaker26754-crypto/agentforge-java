@@ -4,9 +4,22 @@
 
 AgentForge Java — CI 失败诊断与受控自动修复 Agent（自研 Agent Runtime + Control Plane）
 
-## 可直接使用的 bullet
+## 可直接使用的 bullet（业务视角，4 条）
 
-以下数字来自仓库可复现测试或固定配置，不把尚未运行的 Java21 结果包装成提升：
+写法为「**能力短语**：做法；业务价值」。完整业务链路（业务痛点 → 数据接入 → Agent 推理 → 上下文控制 → 执行动作 → 权限拦截 → 人工审批 → 恢复 → 验证）与按链路展开的 8 条详版见 [项目梳理与业务亮点](project-narrative.md)。
+
+**CI 失败诊断与受控自动修复 Agent（AgentForge）** ｜ 个人项目 ｜ 2026.09–至今
+
+> CI 失败后要在 Workflow、日志、Commit、Diff 与测试之间反复切换，根因常藏在最近变更里，人工拼接证据耗时；而把文件、命令与 Git 权限直接交给 LLM，又存在误改与越权风险。目标是让 Agent 在可审计、可恢复的边界内完成"定位→修复→验证"，高风险动作仍由人确认。
+
+- **打通 CI 证据链**：以 Webhook 验签与适配层接入 CI，把 Workflow、失败 Job、日志、Commit、Diff 与仓库代码统一收束为标准工具结果，并按仓库+commit+run 幂等建任务；使失败现象可按变更精确关联，替代人工跨系统拼接证据的排查方式。
+- **可解释的推理闭环**：把排查 SOP 固化为"计划—校验—权限—执行—观察—反思"六阶段，按 Token 预算只投喂最小必要证据（日志、测试输出、堆栈、Diff、文件清单按比例截断）；模型只产出工具调用与结论，每一步留下审计事件，归因链路可复核。
+- **受控执行边界**：所有命令与改动只发生在断网、非 root、限资源的沙箱内，动作按只读、受限执行、人工审批、默认禁止四级分流；需确认的高风险动作生成含参数与依据的待批记录并挂起，人工确认后才会执行。
+- **可恢复与可验证**：执行前写意图、执行后写结果，崩溃后从快照与事件重放恢复，结果未知的非幂等动作进入 UNCERTAIN 而非重放；以 38 项确定性回归与离线 CI 闭环 Benchmark 覆盖协议、边界、审批、恢复与预算，形成可重复的回归入口。
+
+选择 3–5 条，避免把全部堆进一段。以下数字来自仓库可复现测试或固定配置，不把尚未运行的 Java21 结果包装成提升。
+
+## 附录：细颗粒 bullet（按技术点备用）
 
 - 基于 Java 21、Spring Boot 与 Picocli 设计五模块 Agent 系统（core / infrastructure / cli / server / eval），把 LLM 视为不可信 Planner：显式六阶段状态机 `PLAN→VALIDATE→PRE_TOOL_USE→EXECUTE→OBSERVE→REFLECT`，覆盖 6 类终止条件、75% 窗口压缩阈值和 30 次/20 分钟/200k 输入 token/30k 输出 token 的多维预算。
 - 实现 DeepSeek SSE 与 Ollama NDJSON 双 Provider 流式适配，按 ToolCall index 聚合碎片化 name/arguments，并通过独立契约测试覆盖多调用、畸形 JSON、断流和 usage 映射。
@@ -16,8 +29,6 @@ AgentForge Java — CI 失败诊断与受控自动修复 Agent（自研 Agent Ru
 - 实现 GitHub Actions Webhook/API Adapter（HMAC-SHA256 验签、按 repository+commit+run 幂等建任务）与 Spring Boot Control Plane（Task/Session、审批、指标、有界执行器），并把 CI 上下文按 Token 预算组装为最小必要证据。
 - 建立 38 项确定性微基准、2 项离线 CI 闭环 Benchmark 与固定 revision 的 SWE-bench Multilingual Java21 清单；本机 38/38，通过 JSON/CSV/manifest 保存原始结果，尚未执行完整 harness 的 20 题如实标记环境失败。
 - 在 Docker 隔离环境完成真实 Java 修复演示：6 次模型迭代、7/7 工具成功、3 次人工审批，消耗 8,332 输入/641 输出 token，估算费用 ¥0.021792，并由测试输出 `PASS CalculatorTest` 验收。
-
-选择 3–5 条，避免把全部堆进一段。若之后获得真实 Java21 结果，再用报告中的 resolved、费用、时长和 p95 替换最后一条，不能提前填写。
 
 ## 30 秒项目介绍
 
