@@ -1,6 +1,7 @@
 package io.github.moneymaker26754.agentforge.eval;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.moneymaker26754.agentforge.core.AgentPhase;
 import io.github.moneymaker26754.agentforge.core.ApprovalDecision;
 import io.github.moneymaker26754.agentforge.core.ChatMessage;
 import io.github.moneymaker26754.agentforge.core.CheckpointStore;
@@ -23,16 +24,23 @@ import io.github.moneymaker26754.agentforge.core.RunStatus;
 import io.github.moneymaker26754.agentforge.core.SandboxMode;
 import io.github.moneymaker26754.agentforge.core.SessionEvent;
 import io.github.moneymaker26754.agentforge.core.SessionId;
+import io.github.moneymaker26754.agentforge.core.SessionMetrics;
 import io.github.moneymaker26754.agentforge.core.SessionSnapshot;
 import io.github.moneymaker26754.agentforge.core.TerminationReason;
 import io.github.moneymaker26754.agentforge.core.ToolCall;
 import io.github.moneymaker26754.agentforge.core.ToolDefinition;
 import io.github.moneymaker26754.agentforge.core.ToolDescriptor;
+import io.github.moneymaker26754.agentforge.core.ToolExecutionGate;
 import io.github.moneymaker26754.agentforge.core.ToolHandler;
 import io.github.moneymaker26754.agentforge.core.ToolInvocation;
 import io.github.moneymaker26754.agentforge.core.ToolRegistry;
 import io.github.moneymaker26754.agentforge.core.ToolResult;
 import io.github.moneymaker26754.agentforge.core.Usage;
+import io.github.moneymaker26754.agentforge.infrastructure.github.CiContextAssembler;
+import io.github.moneymaker26754.agentforge.infrastructure.github.CiFailureContext;
+import io.github.moneymaker26754.agentforge.infrastructure.github.GitHubWebhookIgnoreException;
+import io.github.moneymaker26754.agentforge.infrastructure.github.GitHubWebhookParser;
+import io.github.moneymaker26754.agentforge.infrastructure.github.GitHubWebhookVerifier;
 import io.github.moneymaker26754.agentforge.infrastructure.model.DeepSeekSseParser;
 import io.github.moneymaker26754.agentforge.infrastructure.model.ModelProtocolException;
 import io.github.moneymaker26754.agentforge.infrastructure.model.OllamaNdjsonParser;
@@ -163,11 +171,21 @@ final class MicroCaseChecks implements AutoCloseable {
             case "loop/repeated-call" -> repeatedToolCallTerminates();
             case "loop/token-budget" -> tokenBudgetTerminates();
             case "loop/final-answer" -> finalAnswerCompletes();
+            case "loop/validation-failure" -> validationFailureSkipsExecution();
+            case "loop/waiting-approval" -> waitingApprovalSuspendsSession();
+            case "loop/approval-resume" -> approvedResumeExecutesPendingCall();
 
             // ---- recovery and audit ---------------------------------------------------------
             case "recovery/completed-not-replayed" -> completedSessionIsNotReplayed();
             case "recovery/non-idempotent-uncertain" -> nonIdempotentIntentBecomesUncertain();
             case "audit/hash-tamper" -> tamperedEventBreaksHashChain();
+            case "audit/metrics" -> sessionMetricsAreCountable();
+
+            // ---- GitHub webhook and context engineering --------------------------------------
+            case "webhook/signature-verified" -> signatureVerifiesAndRejectsTampering();
+            case "webhook/failed-run-parsed" -> failedWorkflowRunIsParsedAndSuccessIsIgnored();
+            case "context/budget-cap" -> assembledBriefStaysWithinBudget();
+            case "context/stack-trace" -> stackTraceIsExtracted();
 
             default -> throw new IllegalArgumentException("unknown micro benchmark case: " + name);
         };
@@ -553,6 +571,152 @@ final class MicroCaseChecks implements AutoCloseable {
     }
 
     // ---------------------------------------------------------------------------------------
+    // loop/*, audit/*, webhook/*, context/*: the upgraded state machine and CI surfaces
+    // ---------------------------------------------------------------------------------------
+
+    private boolean validationFailureSkipsExecution() {
+        var store = new MemoryStore();
+        var model = new ScriptedModel(
+                new ModelResponse("", List.of(new ToolCall("bad", 0, "echo", "{\"text\":\"bad\"}")),
+                        Usage.zero(), "tool_calls"),
+                new ModelResponse("done", List.of(), Usage.zero(), "stop"));
+        var gate = ToolExecutionGate.compose(
+                (definition, json) -> json.contains("bad") ? Optional.of("bad args rejected") : Optional.empty(),
+                invocation -> PolicyDecision.allow("micro benchmark"),
+                request -> ApprovalDecision.APPROVE_ONCE);
+
+        RunResult result = engineWithGate(model, store, echoRegistry(), gate).run(request(RunBudget.defaults()));
+
+        return result.status() == RunStatus.COMPLETED
+                && store.events.stream().anyMatch(event -> event.type() == EventType.VALIDATION_FAILED)
+                && store.events.stream().noneMatch(event -> event.type() == EventType.TOOL_INTENT);
+    }
+
+    private boolean waitingApprovalSuspendsSession() {
+        var store = new MemoryStore();
+        var model = new ScriptedModel(
+                new ModelResponse("", List.of(new ToolCall("c1", 0, "echo", "{\"text\":\"x\"}")),
+                        Usage.zero(), "tool_calls"));
+        var gate = ToolExecutionGate.compose(null, invocation -> PolicyDecision.ask("confirm"),
+                request -> ApprovalDecision.WAITING);
+
+        RunResult result = engineWithGate(model, store, echoRegistry(), gate).run(request(RunBudget.defaults()));
+
+        return result.status() == RunStatus.WAITING_APPROVAL
+                && result.terminationReason() == TerminationReason.WAITING_APPROVAL
+                && store.events.stream().anyMatch(event -> event.type() == EventType.APPROVAL_PENDING)
+                && store.snapshot.isPresent() && store.snapshot.get().checkpoint() != null
+                && store.snapshot.get().checkpoint().pendingApproval() != null
+                && "c1".equals(store.snapshot.get().checkpoint().pendingApproval().toolCallId());
+    }
+
+    private boolean approvedResumeExecutesPendingCall() {
+        var store = new MemoryStore();
+        var suspending = new ScriptedModel(
+                new ModelResponse("", List.of(new ToolCall("c1", 0, "echo", "{\"text\":\"x\"}")),
+                        Usage.zero(), "tool_calls"));
+        var waitingGate = ToolExecutionGate.compose(null, invocation -> PolicyDecision.ask("confirm"),
+                request -> ApprovalDecision.WAITING);
+        RunResult waiting = engineWithGate(suspending, store, echoRegistry(), waitingGate)
+                .run(request(RunBudget.defaults()));
+        if (waiting.status() != RunStatus.WAITING_APPROVAL) return false;
+
+        var executed = new ArrayList<String>();
+        ToolRegistry counting = new ToolRegistry() {
+            @Override public Optional<ToolDefinition> find(String name) {
+                return Optional.of(new ToolDefinition("echo", "echo", "{}", RiskLevel.READ, true, (json, ctx) -> {
+                    executed.add(json);
+                    return ToolResult.success(json);
+                }));
+            }
+
+            @Override public List<ToolDescriptor> descriptors() { return List.of(); }
+        };
+        var finishing = new ScriptedModel(new ModelResponse("resumed", List.of(), Usage.zero(), "stop"));
+        var approveGate = ToolExecutionGate.compose(null, invocation -> PolicyDecision.allow("resume"),
+                request -> ApprovalDecision.APPROVE_ONCE);
+
+        RunResult resumed = engineWithGate(finishing, store, counting, approveGate)
+                .resume(waiting.sessionId(), ApprovalDecision.APPROVE_ONCE);
+
+        return resumed.status() == RunStatus.COMPLETED
+                && executed.equals(List.of("{\"text\":\"x\"}"))
+                && store.events.stream().anyMatch(event -> event.type() == EventType.APPROVAL_DECIDED);
+    }
+
+    private boolean signatureVerifiesAndRejectsTampering() {
+        byte[] body = "{\"action\":\"completed\"}".getBytes(StandardCharsets.UTF_8);
+        String signature = GitHubWebhookVerifier.sign(body, "secret");
+        boolean tampered = GitHubWebhookVerifier.verify("{\"action\":\"other\"}".getBytes(StandardCharsets.UTF_8),
+                signature, "secret");
+        boolean wrongSecret = GitHubWebhookVerifier.verify(body, signature, "different");
+        boolean missingHeader = GitHubWebhookVerifier.verify(body, null, "secret");
+        return GitHubWebhookVerifier.verify(body, signature, "secret") && !tampered && !wrongSecret && !missingHeader;
+    }
+
+    private boolean failedWorkflowRunIsParsedAndSuccessIsIgnored() {
+        var parser = new GitHubWebhookParser(MAPPER);
+        try {
+            var event = parser.parse("""
+                    {"action":"completed","workflow_run":{"id":123,"name":"ci","conclusion":"failure",
+                     "head_sha":"abc123"},"repository":{"full_name":"owner/repo"}}
+                    """);
+            if (!"owner/repo".equals(event.repository()) || !"abc123".equals(event.commitSha())
+                    || event.workflowRunId() != 123L) {
+                return false;
+            }
+            try {
+                parser.parse("""
+                        {"action":"completed","workflow_run":{"id":124,"name":"ci","conclusion":"success",
+                         "head_sha":"abc"},"repository":{"full_name":"owner/repo"}}
+                        """);
+                return false;
+            } catch (GitHubWebhookIgnoreException expected) {
+                return true;
+            }
+        } catch (GitHubWebhookIgnoreException failureShouldParse) {
+            return false;
+        }
+    }
+
+    private boolean assembledBriefStaysWithinBudget() {
+        var assembler = new CiContextAssembler();
+        String hugeLog = "java.lang.AssertionError: expected 4 but was 3\n\tat com.example.CalculatorTest\n"
+                + "log-line ".repeat(2_000);
+        var context = new CiFailureContext("owner/repo", "abc123", 42L, "ci", List.of("tests"),
+                hugeLog, "", "", List.of("Calculator.java"), "", List.of(), "./mvnw test");
+        String brief = assembler.assembleBrief(context, 2_000);
+        return assembler.estimateTokens(brief) <= 2_000 && brief.contains("owner/repo");
+    }
+
+    private boolean stackTraceIsExtracted() {
+        String log = "noise\njava.lang.NullPointerException: boom\n\tat com.example.Calculator.divide(Calculator.java:12)"
+                + "\n\tat com.example.CalculatorTest.testDivide(CalculatorTest.java:20)\nmore noise";
+        String extracted = CiContextAssembler.extractStackTrace(log);
+        return extracted.contains("NullPointerException") && extracted.contains("Calculator.java:12")
+                && "".equals(CiContextAssembler.extractStackTrace("no stack here"));
+    }
+
+    private boolean sessionMetricsAreCountable() {
+        var store = new MemoryStore();
+        var id = new SessionId("micro-metrics");
+        RunRequest request = request(RunBudget.defaults());
+        store.events.add(SessionEvent.of(id, 0, EventType.SESSION_STARTED, CLOCK.instant(), "start"));
+        store.events.add(SessionEvent.of(id, 1, EventType.PHASE_ENTERED, CLOCK.instant(), "PLAN"));
+        store.events.add(SessionEvent.of(id, 2, EventType.MODEL_RESPONSE, CLOCK.instant(), "tool_calls"));
+        store.events.add(SessionEvent.of(id, 3, EventType.TOOL_INTENT, CLOCK.instant(), "c1:echo"));
+        store.events.add(SessionEvent.of(id, 4, EventType.TOOL_RESULT, CLOCK.instant(), "c1:true"));
+        store.snapshot = Optional.of(new SessionSnapshot(id, 4, RunStatus.COMPLETED,
+                List.of(ChatMessage.system("s"), ChatMessage.user("t")), new Usage(5, 2, 0.01), CLOCK.instant(),
+                RunCheckpoint.from(request, 1, null, 0, CLOCK.instant())));
+
+        SessionMetrics metrics = SessionMetrics.of(store.replay(id), store.latestSnapshot(id));
+        return metrics.toolCalls() == 1 && metrics.modelCalls() == 1
+                && metrics.phaseEntries().get(AgentPhase.PLAN) == 1
+                && metrics.inputTokens() == 5 && metrics.costCny() == 0.01;
+    }
+
+    // ---------------------------------------------------------------------------------------
     // fixtures
     // ---------------------------------------------------------------------------------------
 
@@ -575,6 +739,11 @@ final class MicroCaseChecks implements AutoCloseable {
     private static DefaultAgentEngine engine(ModelClient model, CheckpointStore store, ToolRegistry registry) {
         return new DefaultAgentEngine(model, registry, invocation -> PolicyDecision.allow("micro benchmark"),
                 request -> ApprovalDecision.APPROVE_ONCE, store, CLOCK);
+    }
+
+    private static DefaultAgentEngine engineWithGate(ModelClient model, CheckpointStore store, ToolRegistry registry,
+            ToolExecutionGate gate) {
+        return new DefaultAgentEngine(model, registry, gate, store, CLOCK);
     }
 
     private static ToolRegistry echoRegistry() {

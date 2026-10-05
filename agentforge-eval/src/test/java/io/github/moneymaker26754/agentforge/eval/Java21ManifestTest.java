@@ -4,10 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
 
-class Java20ManifestTest {
+class Java21ManifestTest {
     @Test
     void pinsOfficialRevisionAndLexicographicFirstTwentyJavaInstances() {
-        BenchmarkManifest manifest = Java20Manifest.manifest();
+        BenchmarkManifest manifest = Java21Manifest.manifest();
 
         assertThat(manifest.instanceIds()).hasSize(20).isSorted().doesNotHaveDuplicates();
         assertThat(manifest.instanceIds()).first().isEqualTo("apache__druid-13704");

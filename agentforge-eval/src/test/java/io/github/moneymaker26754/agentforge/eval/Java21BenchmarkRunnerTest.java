@@ -4,12 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
 
-class Java20BenchmarkRunnerTest {
+class Java21BenchmarkRunnerTest {
     @Test
     void preservesAllCasesWhenTheExternalHarnessIsUnavailable() {
-        BenchmarkReport report = new Java20BenchmarkRunner().environmentFailed("full", "harness unavailable");
+        BenchmarkReport report = new Java21BenchmarkRunner().environmentFailed("full", "harness unavailable");
 
-        assertThat(report.suite()).isEqualTo("java20");
+        assertThat(report.suite()).isEqualTo("java21");
         assertThat(report.profile()).isEqualTo("full");
         assertThat(report.results()).hasSize(20).allSatisfy(result -> {
             assertThat(result.status()).isEqualTo("ENVIRONMENT_FAILED");

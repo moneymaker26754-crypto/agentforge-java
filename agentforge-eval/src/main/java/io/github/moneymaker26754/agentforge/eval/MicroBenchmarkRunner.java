@@ -21,7 +21,10 @@ public final class MicroBenchmarkRunner {
             "security/shell-metacharacter", "security/dangerous-command", "security/network-denied",
             "runtime/timeout", "runtime/output-truncation", "runtime/concurrent-stream-drain",
             "runtime/serial-tool-order", "loop/repeated-call", "loop/token-budget", "loop/final-answer",
-            "recovery/completed-not-replayed", "recovery/non-idempotent-uncertain", "audit/hash-tamper");
+            "loop/validation-failure", "loop/waiting-approval", "loop/approval-resume",
+            "recovery/completed-not-replayed", "recovery/non-idempotent-uncertain", "audit/hash-tamper",
+            "audit/metrics", "webhook/signature-verified", "webhook/failed-run-parsed",
+            "context/budget-cap", "context/stack-trace");
 
     public BenchmarkReport run(String profile) {
         if (!Set.of("baseline", "full").contains(profile)) throw new IllegalArgumentException("unknown profile: " + profile);

@@ -2,7 +2,7 @@ package io.github.moneymaker26754.agentforge.eval;
 
 import java.util.List;
 
-public final class Java20Manifest {
+public final class Java21Manifest {
     public static final String REVISION = "846e647b9f33c0b51b739d005d13d85493c9af09";
     private static final List<String> IDS = List.of(
             "apache__druid-13704", "apache__druid-14092", "apache__druid-14136", "apache__druid-15402",
@@ -11,10 +11,10 @@ public final class Java20Manifest {
             "apache__lucene-13494", "apache__lucene-13704", "google__gson-1014", "google__gson-1093",
             "google__gson-1100", "google__gson-2024", "google__gson-2061", "google__gson-2134");
 
-    private Java20Manifest() {}
+    private Java21Manifest() {}
 
     public static BenchmarkManifest manifest() {
-        return new BenchmarkManifest("java20", "full", "SWE-bench/SWE-bench_Multilingual", REVISION,
+        return new BenchmarkManifest("java21", "full", "SWE-bench/SWE-bench_Multilingual", REVISION,
                 IDS, 50.0, "1970-01-01T00:00:00Z");
     }
 }
