@@ -1,0 +1,25 @@
+server:
+  port: ${AGENTFORGE_PORT:8080}
+  shutdown: graceful
+
+spring:
+  application:
+    name: agentforge-server
+  main:
+    banner-mode: off
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+agentforge:
+  server:
+    repos-root: ${AGENTFORGE_REPOS_ROOT:}
+    max-concurrent-tasks: ${AGENTFORGE_MAX_CONCURRENT_TASKS:2}
+    provider: ${AGENTFORGE_PROVIDER:deepseek}
+    sandbox-mode: ${AGENTFORGE_SANDBOX_MODE:docker}
+    github-base-url: ${AGENTFORGE_GITHUB_BASE_URL:https://api.github.com}
+    webhook-secret: ${GITHUB_WEBHOOK_SECRET:}
+    network-allowed: ${AGENTFORGE_NETWORK_ALLOWED:false}

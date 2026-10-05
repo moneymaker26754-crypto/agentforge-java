@@ -15,8 +15,8 @@ def counters(report: Path) -> dict[str, tuple[int, int]]:
 
 
 reports = sorted(Path(".").glob("agentforge-*/target/site/jacoco/jacoco.xml"))
-if len(reports) != 4:
-    raise SystemExit(f"expected 4 JaCoCo reports, found {len(reports)}; run ./mvnw verify first")
+if len(reports) != 5:
+    raise SystemExit(f"expected 5 JaCoCo reports, found {len(reports)}; run ./mvnw verify first")
 
 by_module = {report.parts[0]: counters(report) for report in reports}
 core = by_module["agentforge-core"]
