@@ -2,13 +2,13 @@
 
 ## 评测口径
 
-`micro` 是 Agent 基础设施不变量测试；`java20` 是真实仓库 Issue 解决评测，两者不能合并成一个“准确率”。所有报告保留 manifest、逐题 JSON 与 CSV。`FAILED` 表示 Agent/测试失败，`ENVIRONMENT_FAILED` 表示 Docker、镜像、依赖或 harness 未就绪。
+`micro` 是 Agent 基础设施不变量测试；`ci-agent` 是离线 CI 闭环 Benchmark；`java21` 是真实仓库 Issue 解决评测，三者不能合并成一个“准确率”。所有报告保留 manifest、逐题 JSON 与 CSV。`FAILED` 表示 Agent/测试失败，`ENVIRONMENT_FAILED` 表示 Docker、镜像、依赖或 harness 未就绪。
 
-## 30 项微基准
+## 38 项微基准
 
 ```bash
 ./mvnw -q package
-java -jar agentforge-cli/target/agentforge-cli-0.1.0-SNAPSHOT.jar \
+java -jar agentforge-cli/target/agentforge-cli-0.2.0-SNAPSHOT.jar \
   eval run --suite micro --profile full --output build/reports/agentforge
 ```
 
@@ -18,13 +18,20 @@ java -jar agentforge-cli/target/agentforge-cli-0.1.0-SNAPSHOT.jar \
 - `micro-full-results.csv`：便于表格分析的原始行。
 - `micro-full-manifest.json`：数据版本、profile、case id 与费用上限。
 
-每个 case 都直接驱动生产组件（流解析器、反射工具注册中心、`WorkspaceGuard`、策略引擎、本地沙箱、Agent Loop 与 SQLite 存储），不变量回归会让对应 case 变红，因此 `30/30` 表示这些组件当前仍然成立。
+每个 case 都直接驱动生产组件（流解析器、反射工具注册中心、`WorkspaceGuard`、策略引擎、本地沙箱、Agent Loop、PreToolUse 门禁、GitHub 验签、上下文组装器与 SQLite 存储），不变量回归会让对应 case 变红，因此 `38/38` 表示这些组件当前仍然成立。分组：stream 6、tool 6、security 8、runtime 4、loop 6、recovery/audit 4、webhook 2、context 2。
 
-已归档结果在 `benchmark-results/2026-09-24/`：`micro-full-results.json`、`micro-full-results.csv` 与 `micro-full-manifest.json`（`metrics.passed = 30/30`）。
+## 离线 CI Agent Benchmark
 
-## Java20 固定样本
+```bash
+java -jar agentforge-cli/target/agentforge-cli-0.2.0-SNAPSHOT.jar \
+  eval run --suite ci-agent --profile full --output build/reports/agentforge
+```
 
-数据集：`SWE-bench/SWE-bench_Multilingual`，revision `846e647b9f33c0b51b739d005d13d85493c9af09`。Java 仓库为 Apache Druid、Apache Lucene、Gson、JavaParser、Lombok、RxJava；对 43 个 Java instance_id 排序取前 20，清单在 `Java20Manifest`，不替换失败题。
+合成仓库注入失败测试，脚本化模型走「读日志 → 读代码 → Patch → 定向测试」闭环，测试 oracle 是确定性的（源码包含修复即通过）。`ci/happy-path` 验证一次成功；`ci/retry` 验证失败观测驱动 REFLECT 二次修补。全程无 LLM、无网络、无 Docker。
+
+## Java21 固定样本
+
+数据集：`SWE-bench/SWE-bench_Multilingual`，revision `846e647b9f33c0b51b739d005d13d85493c9af09`。Java 仓库为 Apache Druid、Apache Lucene、Gson、JavaParser、Lombok、RxJava；对 43 个 Java instance_id 排序取前 20，清单在 `Java21Manifest`，不替换失败题。
 
 完整 harness 需要 Linux Docker daemon、SWE-bench CLI/镜像与模型预测文件。建议步骤：
 
@@ -40,14 +47,14 @@ python -m swebench.harness.run_evaluation \
   --split test \
   --predictions_path predictions.json \
   --max_workers 1 \
-  --run_id agentforge-java20
+  --run_id agentforge-java21
 ```
 
-当前轻量 `agentforge eval run --suite java20` 只生成固定 manifest；若外部 harness 尚未执行，会为 20 题写入 `ENVIRONMENT_FAILED`，不会伪造 resolved rate。
+当前轻量 `agentforge eval run --suite java21` 只生成固定 manifest；若外部 harness 尚未执行，会为 20 题写入 `ENVIRONMENT_FAILED`，不会伪造 resolved rate。
 
 ## 消融
 
-从 Java20 固定前 10 题比较：
+从 Java21 固定前 10 题比较：
 
 - baseline：朴素窗口、原始错误反馈、无仓库索引。
 - full：75% 上下文压缩、结构化 Schema 错误、仓库索引。
@@ -63,11 +70,12 @@ python -m swebench.harness.run_evaluation \
 - compression rate：`1 - tokensAfter/tokensBefore`。
 - p50/p95：逐工具墙钟耗时分位数，不能用平均值替代尾延迟。
 - estimated cost：Provider usage × manifest 价格；与账单误差要单独披露。
+- 控制面指标：任务状态分布、平均工具调用数、Token/费用总量、待审批数（`GET /api/v1/metrics`）。
 
 ## README 数据更新
 
 ```bash
-java -jar agentforge-cli/target/agentforge-cli-0.1.0-SNAPSHOT.jar eval render-readme \
+java -jar agentforge-cli/target/agentforge-cli-0.2.0-SNAPSHOT.jar eval render-readme \
   --report build/reports/agentforge/micro-full-results.json \
   --readme README.md
 ```

@@ -8,7 +8,14 @@ AgentForge 把 LLM 定义成“可能出错、会重复、输出不完整的规�
 
 ## 2. Agent Loop 与状态机
 
-`AgentEngine.run(RunRequest)` 创建 SessionId，并记录 `SESSION_STARTED`。运行态显式区分 `RUNNING`、`WAITING_APPROVAL`、`COMPLETED`、`FAILED`、`CANCELLED`、`BUDGET_EXHAUSTED` 和 `UNCERTAIN`，避免用一个布尔值混淆“失败”“需要人决定”和“费用耗尽”。
+`AgentEngine.run(RunRequest)` 创建 SessionId，并记录 `SESSION_STARTED`。循环是显式六阶段状态机：`PLAN → VALIDATE → PRE_TOOL_USE → EXECUTE → OBSERVE → REFLECT`，每阶段进入时写 `PHASE_ENTERED` 事件。运行态显式区分 `RUNNING`、`WAITING_APPROVAL`、`COMPLETED`、`FAILED`、`CANCELLED`、`BUDGET_EXHAUSTED` 和 `UNCERTAIN`，避免用一个布尔值混淆“失败”“需要人决定”和“费用耗尽”。
+
+- PLAN：预算检查、上下文压缩、模型交换；
+- VALIDATE：工具存在性、参数 Schema 校验（失败写 `VALIDATION_FAILED`）、重复调用防护，本阶段不执行任何代码；
+- PRE_TOOL_USE：统一门禁链 Schema→Risk→Policy→Approval（`ToolExecutionGate`）；
+- EXECUTE：先写 `TOOL_INTENT` 再执行工具；
+- OBSERVE：写 `TOOL_RESULT`，结果回灌模型；
+- REFLECT：决定继续、结束或等待人工审批。
 
 终止条件彼此独立：无 ToolCall 的最终答案、最大迭代、墙钟超时、输入/输出 token、费用、连续重复调用以及外部取消。检查既发生在模型调用前，也发生在 usage 回来后，因此不会因为一次超大响应而继续执行工具。
 
@@ -44,7 +51,7 @@ Ollama 每行是独立 JSON，结束标志和 usage 字段名称与 OpenAI 协�
 
 风险分为 READ、WRITE、EXECUTE、NETWORK、DESTRUCTIVE。默认矩阵：只读允许；写入和命令询问；网络只有显式开启才可询问；破坏性操作拒绝。策略在参数校验之后、执行意图落库之前运行，审批决定也进入审计链。
 
-human-in-the-loop 不是简单 `Scanner`：概念上需要 `WAITING_APPROVAL` 状态、待审批调用、理由、过期策略和恢复点。CLI 首版同步等待输入；快照保存了完整消息和运行元数据，因此可扩展为异步审批。拒绝不会抛异常，而作为结构化工具结果反馈给模型，让模型换方案。
+人工介入有两种形态：CLI 用 `InteractiveApprovalHandler` 同步询问控制台；Control Plane 用 `PendingApprovalHandler` 把待审批调用（approvalId、toolCall、arguments、reason）写入 `pending_approvals` 表，引擎以 `WAITING_APPROVAL` 挂起并把 `PendingApproval` 存入快照，审批 API 决定后调用 `AgentEngine.resume(sessionId, decision)` 继续——批准则按原参数执行（重新过 VALIDATE），拒绝则把 `USER_REJECTED` 作为结构化工具结果反馈给模型，让模型换方案。重复查询挂起会话是幂等的，不会产生新事件。
 
 ## 7. 文件与命令安全
 
@@ -84,9 +91,11 @@ OTLP 是可选扩展：建议只发指标和 span attribute，不发原始源码
 
 ## 12. 评测设计
 
-30 个微基准是离线确定性回归，覆盖流碎片、未知工具、非法参数、路径逃逸、策略拒绝、超时、截断、重复调用、恢复和哈希篡改。它们证明不变量，不证明模型“会修 Bug”。
+38 个微基准是离线确定性回归，覆盖流碎片、未知工具、非法参数、路径逃逸、策略拒绝、超时、截断、重复调用、阶段顺序、审批挂起与恢复、Webhook 验签、上下文预算和哈希篡改。它们证明不变量，不证明模型“会修 Bug”。
 
-Java20 清单来自 `SWE-bench/SWE-bench_Multilingual` 固定 revision，识别 6 个 Java 仓库后按 instance_id 字典序取前 20，失败题不替换。任务失败与环境失败分栏；总费用达到 ¥50 必须停止并保留已有记录。
+`ci-agent` 套件是离线 CI Agent Benchmark：合成仓库注入失败测试，脚本化模型走「读日志→读代码→Patch→定向测试」闭环，用确定性测试 oracle 代替 Maven 执行；`ci/retry` 用例证明失败观测驱动 REFLECT 二次修补。
+
+Java21 清单来自 `SWE-bench/SWE-bench_Multilingual` 固定 revision，识别 6 个 Java 仓库后按 instance_id 字典序取前 20，失败题不替换。任务失败与环境失败分栏；总费用达到 ¥50 必须停止并保留已有记录。
 
 指标至少包括 resolved rate、测试通过率、输入/输出 token、估算费用、总时长、工具成功率、Schema 错误率、压缩率、审批次数和工具 p50/p95。baseline/full 比较必须使用同一 10 题、同一 Provider、同一时间与步骤预算；负向结果同样进入报告。
 
@@ -98,6 +107,14 @@ Java20 清单来自 `SWE-bench/SWE-bench_Multilingual` 固定 revision，识别 
 4. Docker 默认而非本地默认：启动更重，但默认安全方向正确。
 5. 确定性压缩而非模型摘要：语义能力较弱，但成本、延迟和复现更稳定。
 
-## 14. 从代码出发的阅读顺序
+## 14. Control Plane、GitHub 与 MCP
 
-先读 `DefaultAgentEngine` 理解控制流，再读 `DeepSeekSseParser`/`OllamaNdjsonParser` 理解协议差异；随后看 `ReflectiveToolRegistry` 和 `DefaultPolicyEngine`；最后看 `SqliteCheckpointStore`、`DockerCommandFactory` 与 eval 模块。测试文件与生产类一一对应，是准备面试追问最快的入口。
+`agentforge-server` 是 Spring Boot Web 控制面：Webhook 验签（HMAC-SHA256 常量时间比较）→ 解析 `workflow_run`/`workflow_job` 失败事件 → 按 `repository+commit_sha+workflow_run_id` 幂等建任务（重放返回原任务）→ 有界线程池（默认 2）执行 → 状态持久化到 `agent_tasks`。审批 API、会话查询/事件/报告、指标与 Actuator 健康检查构成完整运维面。模型 key 缺失不阻塞启动：任务执行时快速失败并记录，控制面保持可用。
+
+GitHub Adapter 是纯 `java.net.http` 实现：302 日志下载手工跟随且不向下载地址转发 Authorization；非 2xx 抛 `GitHubApiException`。CI 工具（getWorkflowRun/getFailedJobs/getJobLogs/getCommit/getDiff/runTargetedTest/gitCommit/gitPush/createPullRequest）全部走 `@AgentTool` 注册与 PreToolUse 门禁；`runTargetedTest` 是沙箱的唯一网络例外（依赖解析需要），其余容器保持 `--network none`。
+
+MCP 通过官方 Java SDK 的 stdio transport 接入：每个 server 暴露的工具注册为 `serverName.toolName`，默认 NETWORK 风险、非幂等，崩溃返回 `MCP_ERROR` 不自动重试。`CompositeToolRegistry` 统一 Native 与 MCP 工具；MCP 工具的 Schema 校验依赖 server 端输入约束（Native 工具由 VALIDATE 阶段校验）。
+
+## 15. 从代码出发的阅读顺序
+
+先读 `DefaultAgentEngine`（六阶段状态机）与 `ToolExecutionGate`（PreToolUse 链），再读 `DeepSeekSseParser`/`OllamaNdjsonParser` 理解协议差异；随后看 `ReflectiveToolRegistry`/`ReflectiveToolArgumentsValidator` 和 `DefaultPolicyEngine`；然后 `infrastructure/github`（Adapter+验签+`CiContextAssembler`）、`infrastructure/ci` 与 `infrastructure/mcp`；再看 `SqliteCheckpointStore`、`agentforge-server`（`WebhookController`/`TaskExecutionCoordinator`/`SqliteAgentTaskStore`）与 eval 模块。测试文件与生产类一一对应，是准备面试追问最快的入口。

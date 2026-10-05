@@ -1,171 +1,71 @@
-# AgentForge Java
+# AgentForge
 
-AgentForge 是一个基于 Java 21 的 CLI 编程 Agent。它面向希望在本地代码仓库中引入 AI 编程能力，同时重视执行安全、过程可控、任务可恢复和结果可审计的开发者与工程团队。
+**CI 失败诊断与受控自动修复 Agent —— 一个把不可信 LLM 关进可控、可恢复、可审计执行框架的 Java Agent Runtime。**
 
-项目将大模型视为“不可信的规划器”：模型可以提出工具调用，但文件访问、代码修改和命令执行必须经过类型校验、权限策略与沙箱边界，不能直接操作宿主环境。
+AgentForge 面向真实的软件工程闭环：CI 失败后，自动完成日志阅读、代码定位、问题诊断、测试复现与 Patch 验证。LLM 只负责规划与推理；工具调度、权限控制、上下文组装、状态恢复、沙箱执行与审计全部由 Java 后端确定性控制。
 
-## 面向谁
+## 项目定位
 
-- 希望在 Java 项目中实践 Agent Loop、Tool Calling 和上下文管理的后端开发者。
-- 需要把 DeepSeek 或 Ollama 接入代码仓库自动化流程的工程团队。
-- 关注命令执行安全、人工审批、崩溃恢复和审计能力的平台开发者。
-- 偏好 CLI 工作流，不需要 Web UI 或多 Agent 编排的个人开发者。
+- 主场景：CI Failure Diagnosis & Controlled Auto-Fix（CI 失败诊断与受控自动修复）。
+- 核心思想：不是"让 LLM 自由执行"，而是"让不可信的 LLM 在可控、可恢复、可审计的执行框架里完成真实工程任务"。
+- 交付形态：一套核心 Runtime + 一个主业务场景 —— CLI（`agentforge ci`）与 Control Plane（`agentforge-server`）共用同一份核心代码。
 
 ## 解决什么问题
 
-### 将模型输出可靠地转换为工具调用
-
-模型返回的工具名称和 JSON 参数可能被拆分在多个流式响应片段中。AgentForge 分别解析 DeepSeek SSE 与 Ollama NDJSON，按 ToolCall index 聚合参数，只有在调用完整后才进入工具注册、Schema 校验和参数绑定流程。
-
-### 限制模型能够执行的操作
-
-模型只能调用预先注册的工具，不能指定 Java 类或任意执行宿主代码。工具参数通过 Java record、Jackson 和受控 JSON Schema 进行校验；路径访问经过规范化与符号链接逃逸检查，命令使用 argv 形式执行。
-
-### 隔离不可信命令
-
-命令默认在 Docker 中运行，容器采用非 root 用户、工作区挂载、默认断网、CPU、内存、PID 和超时限制。本地执行模式需要显式开启，并且只允许白名单命令。
-
-### 控制长任务的上下文和资源消耗
-
-Agent Loop 同时管理迭代次数、墙钟时间、Token 预算和费用预算。当上下文接近模型窗口限制时，会保留系统约束、最近对话和未完成工具状态，并压缩较早历史。
-
-### 支持中断恢复与人工介入
-
-运行过程写入 SQLite append-only 事件流，并定期保存快照。任务中断后可以恢复消息、预算和执行状态；高风险工具调用可以暂停等待人工审批。对于已经记录执行意图但结果未知的非幂等操作，系统会进入 `UNCERTAIN`，避免静默重复执行。
-
-### 提供可验证的审计记录
-
-事件之间通过 SHA-256 前序哈希连接，形成可校验的审计链。会话可以导出为 Markdown 或 JSON，日志中的 Key、Token、Authorization 等敏感字段会被脱敏。
-
-## 架构
-
-```mermaid
-flowchart LR
-  CLI[Picocli CLI] --> Engine[AgentEngine]
-  Engine --> Context[Context Manager]
-  Engine --> Model[DeepSeek / Ollama]
-  Model --> Stream[流式响应聚合]
-  Stream --> Registry[工具注册与参数绑定]
-  Registry --> Policy[风险策略与人工审批]
-  Policy --> Sandbox[Docker / 本地受限执行]
-  Sandbox --> Tools[文件、搜索、补丁、命令、Git]
-  Engine --> Store[(SQLite 事件与快照)]
-  Store --> Audit[哈希链审计]
-```
-
-AgentForge 使用 Maven 模块化单体，各模块通过核心 SPI 协作：
-
-```text
-agentforge-core            Agent Loop、状态机、上下文、预算与核心接口
-agentforge-infrastructure  模型客户端、工具、策略、沙箱与 SQLite
-agentforge-cli             Spring Boot non-web、Picocli 与交互审批
-agentforge-eval            离线场景、报告模型与结果渲染
-```
+- **CI 失败排查成本高**：失败后需要在 Workflow、Job、日志、Commit、Diff、代码与测试之间反复切换，人工拼接上下文。
+- **直接给 Agent 权限太危险**：普通代码 Agent 直接拥有文件修改、命令执行和 Git 权限，会带来越权、错误修改和重复副作用。AgentForge 把所有 Tool 调用放进 `Schema → Risk → Policy → Approval` 的统一拦截层，高风险操作必须人工审批，测试与 Patch 在 Docker 沙箱中执行。
+- **上下文失控**：不把整个仓库塞进 Prompt，而是根据 CI 任务动态组装最小必要上下文（失败 Job/日志/堆栈/最近 Commit/Diff/相关文件），按 Token 预算截断。
+- **长任务不可恢复**：每个 CI 任务独立拥有 Session、预算、Checkpoint 和事件流；工具调用前记录 TOOL_INTENT、完成后记录 TOOL_RESULT，故障后从 Snapshot + Event Replay 恢复；非幂等调用结果未知时进入 `UNCERTAIN`，绝不静默重放。
+- **行为不可验证**：确定性评测体系覆盖流协议、Schema、安全边界、预算与故障恢复，离线 CI Benchmark 验证"失败 → 定位 → Patch → 定向测试"完整闭环。
 
 ## 技术与框架
 
 | 领域 | 技术 |
 |---|---|
-| 语言与构建 | Java 21、Maven Wrapper、Maven 多模块 |
-| 应用装配 | Spring Boot non-web、Spring Dependency Injection |
-| CLI | Picocli |
-| 模型接入 | Java HttpClient、DeepSeek OpenAI-compatible API、Ollama API |
-| 流式协议 | SSE、NDJSON、增量 ToolCall 聚合 |
-| 类型与序列化 | Java record、注解反射、Jackson、JSON Schema |
-| 持久化 | SQLite JDBC、事件溯源、快照恢复 |
-| 安全执行 | Docker、argv 进程执行、工作区路径约束、风险策略 |
-| 测试与质量 | JUnit 5、AssertJ、JaCoCo、GitHub Actions |
+| 语言与构建 | Java 21、Maven 多模块（core / infrastructure / cli / server / eval） |
+| 应用框架 | Spring Boot 3（Control Plane Web 服务 + Actuator）、Picocli CLI |
+| Agent Runtime | 自研六阶段状态机 `PLAN → VALIDATE → PRE_TOOL_USE → EXECUTE → OBSERVE → REFLECT`，Checkpoint/Resume、UNCERTAIN、预算控制 |
+| 模型接入 | DeepSeek（OpenAI 兼容 SSE）与 Ollama（NDJSON），增量 ToolCall 按 index 聚合 |
+| 工具层 | `@AgentTool` 注解 + Java record 类型化工具、JSON Schema 生成与校验、MCP Java SDK（stdio）统一 Tool Bus |
+| 安全边界 | Docker 沙箱（非 root/断网/资源限制）、argv 进程执行、路径逃逸防护、风险分级策略与人工审批 |
+| GitHub 集成 | GitHub Actions REST API Adapter、Webhook HMAC-SHA256 验签、按 repository+commit+run 幂等建任务 |
+| 持久化 | SQLite 追加式事件流 + 快照，SHA-256 哈希链审计，AgentTask/AgentSession/审批记录 |
+| 评测 | 38 项确定性 Runtime 回归用例、离线 CI Agent Benchmark、SWE-bench Java 清单、JaCoCo 门禁 + GitHub Actions（Linux/Windows） |
 
-## 内置工具
+## 模块
 
-- 列出工作区文件。
-- 读取文本文件。
-- 在工作区内搜索文本。
-- 应用受大小限制的补丁。
-- 以 argv 形式执行白名单命令。
-- 查看 Git status 和 diff。
-
-模型返回的多个工具调用按顺序串行执行，写操作与命令不会并发修改工作区；子进程的 stdout 与 stderr 由虚拟线程并发消费，避免单侧管道写满后阻塞子进程。
+```text
+agentforge-core            状态机、PreToolUse 门禁、上下文、预算与核心 SPI
+agentforge-infrastructure  模型客户端、GitHub 适配器、CI 工具、MCP 桥、沙箱、策略、SQLite
+agentforge-cli             Spring Boot non-web CLI：run / ci / resume / session / report / eval
+agentforge-server          Control Plane：Webhook、Task/Session API、审批、指标
+agentforge-eval            确定性用例、CI Agent Benchmark、SWE-bench 清单
+```
 
 ## 快速开始
 
-需要 JDK 21。默认沙箱模式还需要 Docker；Ollama 仅在使用本地模型时需要。
+需要 JDK 21；默认沙箱模式还需要 Docker。Ollama 仅在使用本地模型时需要。
 
 ```bash
 ./mvnw verify
 docker build -f Dockerfile.sandbox -t agentforge-sandbox:java21 .
-java -jar agentforge-cli/target/agentforge-cli-0.1.0-SNAPSHOT.jar doctor
+java -jar agentforge-cli/target/agentforge-cli-0.2.0-SNAPSHOT.jar doctor
+
+# CLI 编程任务
+java -jar agentforge-cli/target/agentforge-cli-0.2.0-SNAPSHOT.jar run \
+  --repo /path/to/repo --task "修复失败测试并解释原因" --provider deepseek
+
+# CI 失败诊断（自动拉取失败 Job/日志/Commit/Diff 组装上下文）
+java -jar agentforge-cli/target/agentforge-cli-0.2.0-SNAPSHOT.jar ci \
+  --repo /path/to/repo --github-repo owner/repo --run 123456 --provider deepseek
+
+# Control Plane
+java -jar agentforge-server/target/agentforge-server-0.2.0-SNAPSHOT.jar
 ```
 
-### 使用 DeepSeek
+关键环境变量：`DEEPSEEK_API_KEY`、`GITHUB_TOKEN`（可选，提升 GitHub API 限额）、`GITHUB_WEBHOOK_SECRET`（Control Plane 验签）。
 
-```bash
-export DEEPSEEK_API_KEY=your_key
-
-java -jar agentforge-cli/target/agentforge-cli-0.1.0-SNAPSHOT.jar \
-  run \
-  --repo /path/to/java-repo \
-  --task "修复失败测试并解释原因" \
-  --provider deepseek
-```
-
-### 使用 Ollama
-
-```bash
-ollama pull qwen2.5-coder:7b
-
-java -jar agentforge-cli/target/agentforge-cli-0.1.0-SNAPSHOT.jar \
-  run \
-  --repo /path/to/java-repo \
-  --task "定位并修复空指针" \
-  --provider ollama
-```
-
-### 本地受限执行
-
-Docker 是默认执行模式。只有显式指定时才会在宿主机执行白名单命令：
-
-```bash
-agentforge run \
-  --repo . \
-  --task "运行单元测试" \
-  --provider ollama \
-  --sandbox local
-```
-
-## CLI
-
-```text
-agentforge doctor
-agentforge run --repo <path> --task <text> --provider deepseek|ollama [--sandbox docker|local]
-agentforge resume <session-id>
-agentforge session list
-agentforge session show <session-id>
-agentforge report <session-id> --format markdown|json
-```
-
-## 配置
-
-| 环境变量 | 作用 |
-|---|---|
-| `DEEPSEEK_API_KEY` | DeepSeek API Key |
-| `DEEPSEEK_BASE_URL` | 覆盖 DeepSeek API 地址 |
-| `OLLAMA_BASE_URL` | 覆盖 Ollama 服务地址 |
-| `AGENTFORGE_STATE_DIR` | 指定 SQLite 状态目录 |
-
-API Key 仅从环境变量读取，不会写入仓库、Prompt、事件或运行报告。
-
-## 安全边界
-
-AgentForge 将仓库内容、模型回复和工具输出都视为不可信输入。Docker 是默认隔离边界，但不是虚拟机：Docker daemon 权限、镜像供应链和宿主内核仍需要独立治理。
-
-本地模式只提供命令白名单、工作目录限制、超时和输出上限，不应被视为强隔离环境。项目也不提供默认远程 Git push 工具，避免模型直接修改远程仓库。
-
-## 当前范围
-
-项目专注于单 Agent、单仓库的 CLI 编程流程，目前不包含 Web UI、多 Agent 编排、职位搜索或默认远程 Git 操作。
-
-更详细的实现说明见 [技术手册](docs/technical-handbook.md)。
+更详细的实现说明见 [项目梳理文档](docs/project-overview.md) 与 [技术手册](docs/technical-handbook.md)。
 
 ## License
 
