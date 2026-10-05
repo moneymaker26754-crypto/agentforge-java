@@ -28,7 +28,7 @@
         <sqlite.version>3.50.3.0</sqlite.version>
         <mcp.version>1.1.4</mcp.version>
         <junit.version>5.13.4</junit.version>
-        <assertj.version>3.27.6</assertj.version>
+        <assertj.version>3.27.7</assertj.version>
     </properties>
 
     <dependencyManagement>
