@@ -7,15 +7,30 @@ import java.util.List;
 
 public final class DockerCommandFactory {
     private final String image;
+    private final boolean allowNetwork;
 
     public DockerCommandFactory(String image) {
+        this(image, false);
+    }
+
+    /**
+     * @param allowNetwork when true the {@code --network none} flag is omitted. Used only for the
+     *                     controlled test-run sandbox, which must resolve build dependencies while
+     *                     remaining resource-limited; the default sandbox stays network-isolated.
+     */
+    public DockerCommandFactory(String image, boolean allowNetwork) {
         this.image = image;
+        this.allowNetwork = allowNetwork;
     }
 
     public List<String> create(Path workspace, CommandSpec spec) {
         var command = new ArrayList<>(List.of(
-                "docker", "run", "--rm",
-                "--network", "none",
+                "docker", "run", "--rm"));
+        if (!allowNetwork) {
+            command.add("--network");
+            command.add("none");
+        }
+        command.addAll(List.of(
                 "--cpus", "2",
                 "--memory", "4g",
                 "--pids-limit", "256",
@@ -27,4 +42,3 @@ public final class DockerCommandFactory {
         return List.copyOf(command);
     }
 }
-
