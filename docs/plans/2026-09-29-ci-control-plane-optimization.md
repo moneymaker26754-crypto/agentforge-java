@@ -25,7 +25,7 @@
 
 - `agentforge-core`：显式状态机 PLAN→VALIDATE→PRE_TOOL_USE→EXECUTE→OBSERVE→REFLECT；
   `ToolExecutionGate`；`AgentPhase`；`SessionMetrics`；`ApprovalDecision.WAITING`；
-  `RunStatus.AWAITING_APPROVAL`；`ToolArgumentsValidator` SPI。
+  `RunStatus.WAITING_APPROVAL`（复用既有枚举值，未新增）；`ToolArgumentsValidator` SPI。
 - `agentforge-infrastructure` 新增包：`infrastructure.github`（GitHubApiClient、
   GitHubWebhookVerifier、CiContextAssembler）、`infrastructure.ci`（GitHub 读取工具、
   RunTestTool、GitCommitTool、GitPushTool/CreatePullRequestTool）、`infrastructure.mcp`

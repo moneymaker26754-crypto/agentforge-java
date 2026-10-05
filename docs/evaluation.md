@@ -80,4 +80,4 @@ java -jar agentforge-cli/target/agentforge-cli-0.2.0-SNAPSHOT.jar eval render-re
   --readme README.md
 ```
 
-渲染器只修改 `BENCHMARK:START/END` 区域，防止人工筛选结果。
+渲染器只修改 `<!-- BENCHMARK:START -->` 与 `<!-- BENCHMARK:END -->` 之间的区域，防止人工筛选结果；若 README 中没有这对标记会直接报错。README 现按“项目定位 / 解决什么问题 / 技术与框架”重写，默认不再内嵌基准表，需要展示数字时先在 README 中加入这对标记即可。

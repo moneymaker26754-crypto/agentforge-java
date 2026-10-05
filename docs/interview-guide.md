@@ -28,11 +28,11 @@
 - 项目证据：`ToolHandler<A extends Record>`、`RunStatus`、执行器。
 - 权衡与追问：启动/内存不如 Go；换来成熟 DI 和类型生态。
 
-### 4. 四模块为什么这样拆？
+### 4. 五模块为什么这样拆？
 
 - 要点：依赖方向；领域与基础设施隔离；可替换测试。
-- 30 秒：core 只含状态机和 SPI；infrastructure 实现模型、工具、沙箱、SQLite；cli 负责装配与交互；eval 负责实验。core 不依赖 Spring/SQLite，所以 scripted model 和内存 store 能快速测试。
-- 2 分钟深挖：模块边界不是按技术名词随意拆，而是约束依赖方向。CLI 可以换成服务端，Store 可以换 PostgreSQL，状态机无需改。eval 独立避免评测逻辑污染生产 Loop。
+- 30 秒：core 只含六阶段状态机、PreToolUse 门禁和 SPI；infrastructure 实现模型、GitHub Adapter、CI 工具、MCP 桥、沙箱、SQLite；cli 负责装配与交互；server 是 Control Plane（Webhook、Task/Session、审批、指标）；eval 负责实验。core 不依赖 Spring/SQLite，所以 scripted model 和内存 store 能快速测试。
+- 2 分钟深挖：模块边界不是按技术名词随意拆，而是约束依赖方向。CLI 和服务端共用同一份 core Runtime，Store 可以换 PostgreSQL，状态机无需改。eval 独立避免评测逻辑污染生产 Loop。
 - 项目证据：父 POM modules 与各 module POM。
 - 权衡与追问：模块化单体比微服务简单；当前没有跨进程需求。
 
@@ -102,10 +102,10 @@
 
 ### 13. 介绍一下你独立开发的 CLI 编程 Agent，核心模块有哪些？
 
-- 要点：core、infrastructure、cli、eval；模型是不可信规划器。
-- 30 秒：AgentForge 是 Java 21 的 CLI 编程 Agent。core 管状态机、上下文和预算；infrastructure 管 DeepSeek/Ollama、工具、策略、Docker 与 SQLite；cli 用 Spring Boot non-web 和 Picocli 装配；eval 固定数据和生成报告。
-- 2 分钟深挖：它的差异点是执行边界：ToolCall 必须通过注册、Schema、参数、策略和审批；执行前后落审计事件；崩溃后从快照恢复。30 项微基准 30/30，Java20 当前如实记录环境失败。
-- 项目证据：四模块 POM、README 架构图。
+- 要点：core、infrastructure、cli、server、eval；模型是不可信规划器。
+- 30 秒：AgentForge 是 Java 21 的 CI 失败诊断与受控自动修复 Agent。core 管六阶段状态机、PreToolUse 门禁、上下文和预算；infrastructure 管 DeepSeek/Ollama、GitHub Adapter、CI 工具、MCP 桥、策略、Docker 与 SQLite；cli 用 Spring Boot non-web 和 Picocli 装配；server 是 Spring Boot Control Plane（Webhook、Task/Session、审批、指标）；eval 固定数据和生成报告。
+- 2 分钟深挖：它的差异点是执行边界：ToolCall 必须通过注册、Schema、参数、策略和审批；执行前后落审计事件；崩溃后从快照恢复。38 项微基准 38/38，另有离线 ci-agent 闭环 Benchmark；Java21 当前如实记录环境失败。
+- 项目证据：五模块 POM、README 架构图。
 - 权衡与追问：首版不做 Web、多 Agent、职位搜索，集中证明后端核心。
 
 ### 14. 详细描述 Agent Loop 的完整执行流程。
@@ -292,20 +292,20 @@
 - 项目证据：eval metrics 与事件报告。
 - 权衡与追问：高基数字段如 session 不应放长期 metrics label。
 
-### 37. 30 个微基准证明了什么？
+### 37. 38 个微基准证明了什么？
 
 - 要点：基础设施不变量；不证明真实修复能力。
-- 30 秒：它们快速覆盖流式碎片、Schema、安全、超时、重复、恢复和审计，证明这些确定性组件没有回归；30/30 不能等同 SWE-bench resolved rate。
+- 30 秒：它们快速覆盖流式碎片、Schema、安全、超时、重复、阶段顺序、审批挂起、Webhook 验签、上下文预算、恢复和审计，证明这些确定性组件没有回归；38/38 不能等同 SWE-bench resolved rate。
 - 2 分钟深挖：微基准应离线、确定、便宜，适合每次 CI。真实任务依赖模型和镜像，单独报告并保留环境失败。
 - 项目证据：`MicroBenchmarkRunner` 和 JSON/CSV。
 - 权衡与追问：当前部分 case 是不变量 smoke，后续应更多直接复用生产组件。
 
-### 38. 为什么固定 Java20 数据 revision 和排序？
+### 38. 为什么固定 Java21 数据 revision 和排序？
 
 - 要点：防挑题；可复现；失败不替换。
 - 30 秒：固定官方 revision，识别 Java 仓库，对 instance_id 字典序取前 20。这样选择与结果无关，失败题不换，避免只展示漂亮结果。
 - 2 分钟深挖：manifest 还要记模型 id、价格、prompt hash、工具版本和预算。数据升级必须新建实验版本，不能覆盖旧报告。
-- 项目证据：`Java20ManifestTest`。
+- 项目证据：`Java21ManifestTest`。
 - 权衡与追问：前 20 不一定代表全部 Java，但规则透明。
 
 ### 39. baseline 和 full 怎样公平比较？
@@ -318,8 +318,8 @@
 
 ### 40. 当前项目最大的不足是什么？
 
-- 要点：Java20 未完整运行；确定性摘要弱；异步审批/OTLP 未完成。
-- 30 秒：当前最重要的限制是完整 SWE-bench harness 尚未执行，所以 Java20 只有环境失败记录，不能声称真实 resolved；另外摘要偏机械，异步审批和 OTLP 仍是路线图。
+- 要点：Java21 未完整运行；确定性摘要弱；多实例存储与 OTLP 未完成。
+- 30 秒：当前最重要的限制是完整 SWE-bench harness 尚未执行，所以 Java21 只有环境失败记录，不能声称真实 resolved；另外摘要偏机械，多实例共享存储（PostgreSQL）和 OTLP 仍是路线图。异步审批已经落地：Control Plane 用 `pending_approvals` 表挂起会话、审批 API 决定后恢复。
 - 2 分钟深挖：我选择明确暴露限制而不是补假数据。下一步先跑通官方 harness 并保留失败，再用配对 10 题验证 full 是否真的优于 baseline；若无提升，分析 token、Schema 和工具轨迹。
 - 项目证据：README 限制和原始报告。
 - 权衡与追问：项目完整度与证据可信度之间，优先可信度。
@@ -640,7 +640,7 @@
 
 ### 119. 生产上线前还缺什么？
 - 要点：强隔离、租户、密钥、SLO、演练、真实评测。
-- 30 秒：至少补 gVisor/微虚机、异步审批、租户权限、密钥服务、完整取消、灾备、OTLP、红队和多次真实 Java20；当前仓库不声称生产级。
+- 30 秒：至少补 gVisor/微虚机、租户权限、密钥服务、完整取消、灾备、OTLP、红队和多次真实 Java21；当前仓库不声称生产级。
 
 ### 120. 你从项目中最重要的思考是什么？
 - 要点：Agent 质量是模型能力 × 确定性工程边界 × 证据。
