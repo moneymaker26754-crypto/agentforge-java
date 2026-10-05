@@ -3,4 +3,4 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 exec java --enable-native-access=ALL-UNNAMED \
   -Dagentforge.state.dir="$SCRIPT_DIR/../.agentforge" \
-  -jar "$SCRIPT_DIR/../agentforge-cli/target/agentforge-cli-0.1.0-SNAPSHOT.jar" "$@"
+  -jar "$SCRIPT_DIR/../agentforge-cli/target/agentforge-cli-0.2.0-SNAPSHOT.jar" "$@"

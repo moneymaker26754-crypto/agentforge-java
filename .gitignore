@@ -10,3 +10,4 @@ target/
 *.db-wal
 benchmark-work/
 build/
+docs/aegis/
