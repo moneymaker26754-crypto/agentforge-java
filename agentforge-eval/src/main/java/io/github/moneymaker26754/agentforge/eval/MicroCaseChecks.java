@@ -72,7 +72,7 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Executes the 30 deterministic micro benchmark cases against the real production components.
+ * Executes the 38 deterministic micro benchmark cases against the real production components.
  *
  * <p>Each case calls the same classes the CLI uses — stream parsers, the reflective tool registry,
  * the workspace guard, the policy engine, the local sandbox and the agent engine with an in-memory store —
